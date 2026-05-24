@@ -5,8 +5,8 @@ from pathlib import Path
 from datetime import datetime
 
 # ================= 配置区 =================
-DEFAULT_CSV = "title_review.csv"
-LOG_FILE = "rename_log.txt"
+DEFAULT_CSV = "output/title_review.csv"
+LOG_FILE = "logs/rename_log.txt"
 # ==========================================
 
 def log_message(message: str, log_path: Path):
@@ -39,7 +39,7 @@ def main():
         tasks = list(reader)
 
     if not tasks:
-        print("⚠️ 待审表为空，无需执行。")
+        print("[警告] 待审表为空，无需执行。")
         return
 
     # 统计计数器
@@ -109,15 +109,15 @@ def main():
     print(f"{'='*60}")
     print(f"待审记录总数: {len(tasks)}")
     print(f"标记为'已确认': {stats['confirmed']}")
-    print(f"✅ 重命名成功: {stats['success']}")
-    print(f"⚠️  名称未变更: {stats['skip']}")
-    print(f"🔄 冲突已避让: {stats['conflict']}")
-    print(f"❌ 执行失败: {stats['error']}")
+    print(f"[成功] 重命名成功: {stats['success']}")
+    print(f"[跳过] 名称未变更: {stats['skip']}")
+    print(f"[冲突] 冲突已避让: {stats['conflict']}")
+    print(f"[失败] 执行失败: {stats['error']}")
     print(f"{'='*60}")
     print(f"详细日志: {log_path.resolve()}")
     
     if args.dry_run:
-        print(f"\n💡 当前为模拟模式，未执行实际重命名。")
+        print(f"\n[提示] 当前为模拟模式，未执行实际重命名。")
         print(f"   确认无误后，移除 --dry-run 参数再次运行。")
 
 if __name__ == "__main__":

@@ -1,29 +1,31 @@
-# 视频标题批量标准化重命名工具
+# 视频/图片标题批量标准化重命名工具
 
-## 📋 目录
+## 目录
 
 - [项目简介](#项目简介)
 - [核心功能](#核心功能)
 - [环境要求](#环境要求)
 - [安装步骤](#安装步骤)
 - [快速开始](#快速开始)
+- [GUI使用说明](#gui使用说明)
 - [阶段一：扫描与生成](#阶段一扫描与生成)
+- [阶段 1b：AI 优化标题](#阶段-1b-ai-优化标题)
+- [阶段 1c：视觉理解提取关键词](#阶段-1c-视觉理解提取关键词)
 - [阶段二：核对与重命名](#阶段二核对与重命名)
-- [参数详解](#参数详解)
-- [高级功能](#高级功能)
+- [AI Provider 配置](#ai-provider-配置)
 - [常见问题](#常见问题)
-- [最佳实践](#最佳实践)
+- [更新日志](#更新日志)
 
 ---
 
 ## 项目简介
 
-本工具是一套**双阶段视频文件批量重命名系统**，专为本地视频库管理设计。通过智能分词与关键词提取，将杂乱的视频文件名转换为**标准化、可检索、语义清晰**的格式，同时保证操作的安全性与可逆性。
+本工具是一套**三阶段媒体文件批量重命名系统**，专为本地视频/图片库管理设计。通过智能分词、AI 清洗和视觉识别，将杂乱的文件名转换为**标准化、可检索、语义清晰**的格式，同时保证操作的安全性与可逆性。
 
 **适用场景**：
-- 整理下载目录中的大量视频文件
-- 为视频库建立统一命名规范
-- 为后续AI分类/标签系统准备数据
+- 整理下载目录中的大量视频/图片文件
+- 为媒体库建立统一命名规范
+- 为后续 AI 分类/标签系统准备数据
 - 批量清理历史遗留的混乱文件名
 
 ---
@@ -32,13 +34,25 @@
 
 | 功能模块 | 特性描述 |
 |---------|---------|
-| 🔍 **智能扫描** | 递归遍历指定目录，支持10+种视频格式，自动跳过损坏/无权限目录 |
-| 🧠 **语义分析** | 基于 Jieba 分词 + TF-IDF 算法，自动提取标题核心关键词 |
-| 📝 **安全预览** | 双阶段设计，先生成待审表，人工确认后再执行，零风险操作 |
-| 🛡️ **冲突避让** | 自动检测文件名冲突，智能追加序号（`_1`, `_2`），防止覆盖 |
-| 🔄 **增量模式** | 支持多次扫描追加记录，适合分批处理大型视频库 |
-| 🚫 **目录排除** | 灵活排除特定目录（按名称/路径），避免扫描系统文件夹 |
-| 📊 **详细日志** | 生成执行日志与错误报告，便于审计与问题排查 |
+| 智能扫描 | 递归遍历指定目录，支持 10+ 种视频格式和 7 种图片格式 |
+| 语义分析 | 基于 Jieba 分词 + TF-IDF 算法，自动提取标题核心关键词 |
+| 无意义检测 | 程序自动识别 hash、Telegram 来源、IMG_xxx 等无意义标题 |
+| 自动跳过 | 已分类的文件（以 `[` 开头的标题）自动跳过，避免重复处理 |
+| AI 优化 | 支持 Ollama、智谱、gcli 三种 API，批量精简标题 |
+| 视觉识别 | 支持 MiMo、gcli 视觉模型，从视频/图片提取关键词 |
+| **CLIP 预分类** | 使用 OpenCLIP 进行本地预分类，支持多标签输出 |
+| **关键帧检测** | 基于帧差异自动检测视频关键帧，捕捉场景变化 |
+| **人体区域检测** | 使用 UHD 模型检测人体区域，专注人物穿着变化 |
+| **Embedding 变化检测** | 基于 CLIP embedding 相似度检测穿着变化，更准确 |
+| **多帧 VLM** | 支持送入多帧给云端 VLM，提高识别准确度 |
+| 人体检测 | 使用 UHD 超轻量模型自动找到视频中包含人体的帧（默认启用） |
+| 智能压缩 | 自动压缩图片/视频帧，避免 API 传输过大文件 |
+| 水印优先 | 视觉识别优先提取水印、社交媒体名称、博主ID等关键信息 |
+| 安全预览 | 三阶段设计，先生成待审表，人工确认后再执行，零风险操作 |
+| 冲突避让 | 自动检测文件名冲突，智能追加序号（`_1`, `_2`），防止覆盖 |
+| 增量模式 | 支持多次扫描追加记录，适合分批处理大型媒体库 |
+| 目录排除 | 灵活排除特定目录（按名称/路径），避免扫描系统文件夹 |
+| 详细日志 | 生成执行日志与错误报告，便于审计与问题排查 |
 
 ---
 
@@ -46,10 +60,11 @@
 
 | 组件 | 版本要求 | 说明 |
 |------|---------|------|
-| Python | 3.8+ | 推荐 3.10+ |
+| Python | 3.10+ | 推荐 3.12 |
 | 操作系统 | Windows / macOS / Linux | 全平台兼容 |
-| 磁盘空间 | ≥ 100MB | 用于安装依赖与缓存 |
+| 磁盘空间 | >= 500MB | 包含模型文件和依赖 |
 | 权限要求 | 目标目录读写权限 | 必需 |
+| ffmpeg | 全局 PATH | 用于阶段 1c 视频帧提取 |
 
 ---
 
@@ -67,59 +82,108 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-**或使用 pip**：
+### 2. 克隆项目
+
 ```bash
-pip install uv
+git clone https://github.com/your-username/video-title-classifier.git
+cd video-title-classifier
 ```
-
-### 2. 克隆或下载项目文件
-
-将以下文件保存到同一目录（例如 `D:\video-renamer\`）：
-- `stage1_extract_propose.py`
-- `stage2_apply_rename.py`
 
 ### 3. 创建虚拟环境并安装依赖
 
 ```powershell
-# 进入项目目录
-cd D:\video-renamer
-
-# 创建虚拟环境（自动检测 Python 版本）
-uv venv --python 3.10
-
-# 激活虚拟环境（Windows）
-.\.venv\Scripts\activate
-
-# 安装依赖
-uv pip install jieba
+uv venv --python 3.12
+uv sync
 ```
 
-> 💡 **提示**：使用 `uv run` 命令可自动激活环境，无需手动执行 `activate`。
+### 4. 下载模型文件
+
+#### 4.1 人体检测模型（必须）
+
+模型文件已包含在项目中：`models/human_detection/ultratinyod_res_anc8_w128_64x64_loese_distill.onnx`
+
+#### 4.2 CLIP 模型（可选，用于本地预分类）
+
+CLIP 模型会在首次使用时自动下载到 `models/clip/` 目录。
+
+如需手动下载：
+```powershell
+uv run python download_clip.py
+```
+
+### 5. 配置 AI API（可选）
+
+在项目根目录创建 `.env` 文件：
+
+```env
+# 智谱 API（用于文本优化）
+ZHIPU_API_KEY=your_zhipu_key_here
+
+# gcli API（用于视觉识别，推荐）
+GCLI_API_KEY=your_gcli_key_here
+
+# 小米 MiMo API（用于视觉识别）
+MIMO_API_KEY=your_mimo_key_here
+```
 
 ---
 
 ## 快速开始
 
-### 典型工作流程
+### 命令行方式
 
 ```powershell
 # 步骤1：扫描目录并生成待审表
 uv run python stage1_extract_propose.py -d "F:\Videos"
 
-# 步骤2：用文本编辑器打开 CSV，核对并修改
-notepad title_review.csv
+# 步骤2：（可选）AI 优化标题
+uv run python stage1b_ai_refine.py -p gcli
 
-# 步骤3：模拟运行，预览结果
+# 步骤3：视觉识别提取关键词（默认启用人体检测）
+uv run python stage1c_vision_refine.py --use-clip -p gcli
+
+# 步骤4：用编辑器打开 CSV，核对并修改
+code title_review.csv
+
+# 步骤5：模拟运行，预览结果
 uv run python stage2_apply_rename.py --dry-run
 
-# 步骤4：确认无误，执行重命名
+# 步骤6：确认无误，执行重命名
 uv run python stage2_apply_rename.py
 ```
 
-**执行时间参考**：
-- 100 个视频：约 5-10 秒
-- 1,000 个视频：约 30-60 秒
-- 10,000 个视频：约 5-10 分钟
+### GUI 方式
+
+```powershell
+# 启动图形界面
+uv run python gui.py
+```
+
+---
+
+## GUI使用说明
+
+### 启动 GUI
+
+```powershell
+uv run python gui.py
+```
+
+### 功能标签页
+
+| 标签页 | 功能 |
+|--------|------|
+| **Stage1 扫描** | 扫描目录，生成待审表 |
+| **Stage1b AI优化** | 使用AI优化标题（只处理needs_vision=false） |
+| **Stage1c 视觉识别** | 使用CLIP+VLM提取关键词 |
+| **Stage2 重命名** | 执行重命名操作 |
+
+### 特色功能
+
+- **鼠标悬停提示**：所有控件都有详细的功能说明
+- **Provider自动检测**：下拉框自动显示可用的AI Provider
+- **预览编辑**：Stage1b支持预览和编辑AI优化结果
+- **右键菜单**：支持采用原标题、编辑、删除等操作
 
 ---
 
@@ -127,7 +191,7 @@ uv run python stage2_apply_rename.py
 
 ### 功能说明
 
-递归扫描指定目录中的所有视频文件，提取文件名，通过分词算法生成标准化建议名称，输出为 CSV 待审表。
+递归扫描指定目录中的所有视频和图片文件，提取文件名，通过分词算法生成标准化建议名称，输出为 CSV 待审表。
 
 ### 基本用法
 
@@ -135,65 +199,108 @@ uv run python stage2_apply_rename.py
 # 扫描单个目录
 uv run python stage1_extract_propose.py -d "F:\Download"
 
-# 扫描并指定输出文件
-uv run python stage1_extract_propose.py -d "F:\Download" -o "my_review.csv"
-
 # 排除特定目录
 uv run python stage1_extract_propose.py -d "F:\Download" --exclude-dir "temp"
 
-# 排除多个目录
-uv run python stage1_extract_propose.py -d "F:\Download" \
-  --exclude-dir "temp" \
-  --exclude-dir "cache" \
-  --exclude-dir "F:\Download\broken"
-
-# 追加模式（保留旧记录）
-uv run python stage1_extract_propose.py -d "E:\Movies" -a
+# 强制重新分类（处理已有中括号的文件）
+uv run python stage1_extract_propose.py -d "F:\Videos" --force-reclassify
 ```
 
 ### 参数说明
 
 | 参数 | 简写 | 类型 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| `--target-dir` | `-d` | **必需** | - | 要扫描的视频目录路径（支持相对/绝对路径） |
+| `--target-dir` | `-d` | **必需** | - | 要扫描的目录路径 |
 | `--output` | `-o` | 可选 | `title_review.csv` | 输出待审表文件名 |
-| `--append` | `-a` | 可选 | `False` | 启用追加模式，在现有 CSV 末尾添加新记录 |
+| `--append` | `-a` | 可选 | `False` | 启用追加模式 |
 | `--exclude-dir` | - | 可选（可多次） | - | 排除的目录名或绝对路径 |
+| `--force-reclassify` | - | 可选 | `False` | 强制重新分类 |
 
-### 输出文件结构
+---
 
-生成的 `title_review.csv` 包含以下列：
+## 阶段 1b：AI 优化标题
 
-| 列名 | 说明 | 示例 |
-|------|------|------|
-| `original_path` | 视频文件绝对路径 | `F:\Videos\abc.mp4` |
-| `original_title` | 原始文件名（不含扩展名） | `Python入门教程` |
-| `proposed_title` | 算法生成的建议名称 | `[Python_入门_教程]_Python入门教程` |
-| `review_status` | 审核状态（默认"待审核"） | `待审核` |
-| `final_name` | 最终采用的名称（默认同 proposed_title） | `[Python_入门_教程]_Python入门教程` |
+### 功能说明
 
-### 命名规则
+读取阶段一生成的 CSV，调用 AI 大语言模型对标题进行智能精简，去除冗余信息，只保留核心标题。
 
-算法生成的新名称格式为：
+**处理规则**：
+- `needs_vision=false` 的标题：AI 精简后写入 `final_name`
+- `needs_vision=true` 的标题：**跳过**，留给阶段 1c 处理
+
+### 支持的 Provider
+
+| Provider | 默认模型 | 环境变量 | 特点 |
+|----------|---------|---------|------|
+| `ollama` | qwen2.5:7b-instruct-q4_K_M | - | 本地运行，免费 |
+| `zhipu` | GLM-4.7-Flash | ZHIPU_API_KEY | 云端，中文优秀 |
+| `gcli` | gemini-3-flash-preview | GCLI_API_KEY | 云端，推荐使用 |
+
+### 基本用法
+
+```powershell
+# 使用 gcli API（推荐）
+uv run python stage1b_ai_refine.py -p gcli
+
+# 使用 Ollama（本地）
+uv run python stage1b_ai_refine.py -p ollama
+
+# 使用智谱 API
+uv run python stage1b_ai_refine.py -p zhipu
 ```
-[关键词1_关键词2_关键词3]_原始文件名.扩展名
+
+---
+
+## 阶段 1c：视觉理解提取关键词
+
+### 功能说明
+
+对于 `needs_vision=true` 的文件（hash、纯数字、IMG_xxx 等），使用视觉大模型从视频/图片中提取内容关键词。
+
+**核心特性**：
+- **CLIP 本地预分类**：使用 OpenCLIP 进行本地分类，支持多标签输出
+- **关键帧检测**：基于帧差异自动检测视频关键帧，捕捉场景变化
+- **人体区域检测**：使用 UHD 模型检测人体区域，专注人物穿着变化
+- **Embedding 变化检测**：基于 CLIP embedding 相似度检测穿着变化
+- **多帧 VLM**：支持送入多帧给云端 VLM，提高识别准确度
+
+### 支持的 Provider
+
+| Provider | 默认模型 | 环境变量 | 特点 |
+|----------|---------|---------|------|
+| `gcli`（推荐） | gemini-3-flash-preview | GCLI_API_KEY | 云端，免费 |
+| `mimo` | mimo-v2-omni | MIMO_API_KEY | 小米自研视觉模型 |
+
+### 基本用法
+
+```powershell
+# 默认使用 gcli，启用 CLIP
+uv run python stage1c_vision_refine.py --use-clip -p gcli
+
+# 使用 MiMo 模型
+uv run python stage1c_vision_refine.py -p mimo
+
+# 禁用人体检测
+uv run python stage1c_vision_refine.py --no-frame-selector
+
+# 模拟运行
+uv run python stage1c_vision_refine.py --dry-run
 ```
 
-**关键词提取逻辑**：
-1. 使用 TF-IDF 算法对文件名分词并计算权重
-2. 过滤停用词（的、了、在、如何等）
-3. 过滤单字（长度 ≤ 1）
-4. 取权重最高的前 3 个词作为前缀
-5. 移除非法字符（`<>:"/\|?*`）
+### 参数说明
 
-**示例**：
-```
-原始：Python入门教程：30分钟学会基础语法.mp4
-新名：[Python_入门_教程]_Python入门教程：30分钟学会基础语法.mp4
-
-原始：小米14开箱！这配置太顶了.mkv
-新名：[小米_开箱_配置]_小米14开箱！这配置太顶了.mkv
-```
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `--use-clip` | 可选 | `False` | 启用 CLIP 预分类 |
+| `--clip-threshold` | 可选 | `0.25` | CLIP 置信度阈值 |
+| `--clip-frames` | 可选 | `5` | CLIP 分析的视频帧数 |
+| `--vlm-frames` | 可选 | `3` | 送入 VLM 的帧数 |
+| `--keyframe-threshold` | 可选 | `30.0` | 关键帧差异阈值 |
+| `--max-keyframes` | 可选 | `8` | 最大关键帧数 |
+| `--use-embedding-detection` | 可选 | `True` | 使用 Embedding 检测变化 |
+| `--embedding-threshold` | 可选 | `0.75` | Embedding 相似度阈值 |
+| `--no-frame-selector` | 可选 | `False` | 禁用人体检测 |
+| `--max-image-size` | 可选 | `800` | 图片最大边长 |
 
 ---
 
@@ -201,7 +308,7 @@ uv run python stage1_extract_propose.py -d "E:\Movies" -a
 
 ### 功能说明
 
-读取阶段一生成的 CSV 待审表，仅对标记为"已确认"的记录执行安全重命名，自动处理冲突与异常。
+读取 CSV 待审表，仅对标记为"已确认"的记录执行安全重命名。
 
 ### 基本用法
 
@@ -212,177 +319,47 @@ uv run python stage2_apply_rename.py --dry-run
 # 正式执行
 uv run python stage2_apply_rename.py
 
-# 指定自定义 CSV 路径
-uv run python stage2_apply_rename.py -c "E:\work\review.csv"
-
-# 模拟运行 + 指定 CSV
-uv run python stage2_apply_rename.py -c "E:\work\review.csv" --dry-run
-```
-
-### 人工核对流程
-
-1. **打开 CSV 文件**
-   ```powershell
-   # 使用记事本
-   notepad title_review.csv
-   
-   # 或使用 VS Code（推荐）
-   code title_review.csv
-   ```
-
-2. **编辑审核状态**
-   - 将需要重命名的行，`review_status` 列改为 **`已确认`**
-   - 保持不需要的行为"待审核"或直接删除该行
-   - 可修改 `final_name` 列自定义最终名称
-
-3. **保存文件**
-   - **编码必须为 UTF-8 with BOM**（Excel 兼容性）
-   - 保持 CSV 格式，不要修改列名
-
-4. **模拟验证**
-   ```powershell
-   uv run python stage2_apply_rename.py --dry-run
-   ```
-   检查终端输出，确认所有变更符合预期
-
-5. **执行重命名**
-   ```powershell
-   uv run python stage2_apply_rename.py
-   ```
-
-### 参数说明
-
-| 参数 | 简写 | 类型 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `--csv` | `-c` | 可选 | `title_review.csv` | 待审表文件路径 |
-| `--dry-run` | - | 可选 | `False` | 模拟模式，仅打印不执行 |
-
-### 执行结果解读
-
-**终端输出示例**：
-```text
-读取审核文件: D:\video-renamer\title_review.csv
-[成功] Python入门教程.mp4 -> [Python_入门_教程]_Python入门教程.mp4
-[冲突解决] 小米14开箱.mkv -> [小米_开箱_配置]_小米14开箱_1.mkv
-[跳过] 名称未变更: 已处理.avi
-
-============================================================
-执行摘要
-============================================================
-待审记录总数: 150
-标记为'已确认': 120
-✅ 重命名成功: 118
-⚠️  名称未变更: 2
-🔄 冲突已避让: 3
-❌ 执行失败: 0
-============================================================
-详细日志: D:\video-renamer\rename_log.txt
-```
-
-**状态码说明**：
-| 状态 | 含义 | 处理建议 |
-|------|------|---------|
-| ✅ 成功 | 文件已重命名 | 无需操作 |
-| ⚠️ 跳过 | 新旧名称相同或状态非"已确认" | 检查 CSV 状态列 |
-| 🔄 冲突 | 目标名称已存在，自动追加序号 | 检查是否有重复文件 |
-| ❌ 失败 | 权限不足/文件占用/路径错误 | 查看日志文件详情 |
-
-### 日志文件
-
-执行后生成 `rename_log.txt`，包含时间戳与详细操作记录：
-```text
-[2024-04-11 14:30:15] [成功] Python入门教程.mp4 -> [Python_入门_教程]_Python入门教程.mp4
-[2024-04-11 14:30:16] [冲突解决] 小米14开箱.mkv -> [小米_开箱_配置]_小米14开箱_1.mkv
-[2024-04-11 14:30:17] [警告] 源文件已移动或删除: F:\Videos\deleted.mp4
+# 批量确认所有记录
+uv run python renamecsv.py
 ```
 
 ---
 
-## 参数详解
+## AI Provider 配置
 
-### 阶段一完整参数表
+### 自定义 Provider
 
-```powershell
-uv run python stage1_extract_propose.py \
-  -d "F:\Videos" \                    # 必需：扫描目录
-  -o "review.csv" \                   # 可选：输出文件名
-  -a \                                # 可选：追加模式
-  --exclude-dir "temp" \              # 可选：排除目录名
-  --exclude-dir "cache" \             # 可选：可多次使用
-  --exclude-dir "F:\Videos\broken"    # 可选：排除绝对路径
+创建 `providers.json` 文件添加自定义 Provider：
+
+```json
+{
+  "my_provider": {
+    "name": "我的Provider",
+    "type": "multi",
+    "url": "https://api.example.com/v1/chat/completions",
+    "env_key": "MY_API_KEY",
+    "default_model": "my-model",
+    "requires_api_key": true,
+    "supports_1b": true,
+    "supports_1c": true,
+    "description": "自定义Provider描述"
+  }
+}
 ```
 
-### 阶段二完整参数表
+### Provider 类型
 
-```powershell
-uv run python stage2_apply_rename.py \
-  -c "review.csv" \                   # 可选：CSV 路径
-  --dry-run                           # 可选：模拟模式
-```
+| 类型 | 说明 | 支持阶段 |
+|------|------|----------|
+| `text` | 只支持文本 | 1b |
+| `vision` | 只支持视觉 | 1c |
+| `multi` | 都支持 | 1b + 1c |
 
----
+### 可用性检测
 
-## 高级功能
-
-### 1. 自定义关键词数量
-
-编辑 `stage1_extract_propose.py`，修改顶部配置：
-```python
-TOP_KEYWORDS = 5  # 默认 3，改为 5 可提取更多关键词
-```
-
-### 2. 自定义停用词表
-
-在 `load_stopwords()` 函数中添加自定义词汇：
-```python
-def load_stopwords() -> set:
-    return {
-        "的", "了", "在", 
-        "你的词1",  # 添加此行
-        "你的词2",  # 添加此行
-        # ...
-    }
-```
-
-### 3. 强制保留特定关键词
-
-修改 `process_title()` 函数，添加白名单逻辑：
-```python
-force_keywords = {"教程", "评测", "开箱"}
-# 确保这些词永远出现在前缀中
-```
-
-### 4. 批量处理多个目录
-
-创建批处理脚本 `batch_scan.bat`（Windows）：
-```batch
-@echo off
-set SCRIPT=stage1_extract_propose.py
-
-uv run python %SCRIPT% -d "F:\Videos" -o "review.csv"
-uv run python %SCRIPT% -d "G:\Movies" -a -o "review.csv"
-uv run python %SCRIPT% -d "H:\Downloads" -a -o "review.csv"
-
-echo 所有目录扫描完成！
-pause
-```
-
-### 5. 仅处理特定格式
-
-编辑 `VIDEO_EXTENSIONS` 集合：
-```python
-VIDEO_EXTENSIONS = {'.mp4', '.mkv'}  # 仅处理 MP4 和 MKV
-```
-
-### 6. 生成统计报告
-
-在阶段一结束后添加统计代码：
-```python
-# 按目录统计
-from collections import Counter
-dir_counts = Counter(Path(r['original_path']).parent for r in records)
-print("目录分布:", dir_counts.most_common(10))
-```
+系统会自动检测 Provider 可用性：
+- 检查环境变量中的 API Key 是否存在
+- 只显示可用的 Provider
 
 ---
 
@@ -390,215 +367,78 @@ print("目录分布:", dir_counts.most_common(10))
 
 ### Q1：提示"文件或目录损坏且无法读取"
 
-**原因**：目标目录包含损坏的文件夹或无权限访问的系统目录。
-
-**解决**：
 ```powershell
-# 使用排除参数跳过问题目录
 uv run python stage1_extract_propose.py -d "F:\" --exclude-dir "F:\Download\love"
 ```
 
 ### Q2：CSV 在 Excel 中打开乱码
 
-**原因**：编码不是 UTF-8 with BOM。
-
-**解决**：
 1. 用 VS Code 打开 CSV
-2. 右下角点击编码 → "通过编码保存"
+2. 右下角点击编码 -> "通过编码保存"
 3. 选择 "UTF-8 with BOM"
-4. 重新用 Excel 打开
 
-### Q3：重命名后文件"消失"了
+### Q3：人体检测不准确
 
-**原因**：文件仍在原目录，只是名称变了。
-
-**解决**：
-- 在资源管理器中按"修改时间"排序
-- 或搜索新名称中的关键词
-
-### Q4：提示"权限不足"或"文件被占用"
-
-**原因**：
-- 视频正在被播放器打开
-- 资源管理器预览窗格锁定文件
-- 杀毒软件实时扫描
-
-**解决**：
-1. 关闭所有播放器
-2. 关闭资源管理器预览窗格
-3. 以管理员身份运行终端
-4. 重启电脑后重试
-
-### Q5：如何撤销重命名？
-
-**方法 1**：从 CSV 的 `original_title` 列手动还原
-
-**方法 2**：执行前备份目录
 ```powershell
+# 降低置信度阈值
+uv run python stage1c_vision_refine.py --conf-threshold 0.3
+
+# 禁用人体检测
+uv run python stage1c_vision_refine.py --no-frame-selector
+```
+
+### Q4：如何撤销重命名？
+
+```powershell
+# 执行前备份目录
 robocopy "F:\Videos" "F:\Videos_Backup" /E /NFL /NDL /NJH /NJS
 ```
 
-**方法 3**：使用版本控制（适合技术人员）
-```bash
-git init
-git add *.mp4
-# 执行重命名后
-git diff --name-only  # 查看变更
-git checkout -- .     # 撤销所有变更
-```
-
-### Q6：想提取所有分词，不只前3个
-
-修改 `process_title()` 函数：
-```python
-def process_title(original: str, stopwords: set) -> str:
-    words = jieba.lcut(original)
-    valid_words = [w for w in words if w not in stopwords and len(w) > 1]
-    prefix = "_".join(valid_words[:10])  # 改为前10个，或移除 [:10]
-    # ...
-```
-
-### Q7：扫描速度太慢
-
-**优化方案**：
-1. 排除无关目录（`--exclude-dir`）
-2. 仅扫描特定子目录，而非整个磁盘
-3. 关闭杀毒软件实时防护（临时）
-4. 使用 SSD 而非机械硬盘
-
-### Q8：支持网络驱动器吗？
-
-**支持**，但需注意：
-- 确保有读写权限
-- 网络延迟可能导致速度较慢
-- 建议使用 UNC 路径（`\\server\share`）而非映射驱动器
-
 ---
 
-## 最佳实践
-
-### 1. 分批处理大型视频库
-
-```powershell
-# 第1批：扫描 F:\Videos\A-M
-uv run python stage1_extract_propose.py -d "F:\Videos\A-M" -o "batch1.csv"
-
-# 第2批：扫描 F:\Videos\N-Z（追加模式）
-uv run python stage1_extract_propose.py -d "F:\Videos\N-Z" -a -o "batch1.csv"
-
-# 合并后统一核对
-notepad batch1.csv
-```
-
-### 2. 建立命名规范文档
-
-在项目中创建 `NAMING_RULES.md`：
-```markdown
-# 视频命名规范
-
-格式：[关键词1_关键词2_关键词3]_原始标题.ext
-
-示例：
-✅ [Python_教程_入门]_Python基础语法讲解.mp4
-✅ [原神_攻略_4.5]_新角色强度分析.mkv
-❌ 教程.mp4  (关键词不足)
-❌ [a_b_c_d_e_f]_标题.mp4  (关键词过多)
-```
-
-### 3. 定期增量扫描
-
-```powershell
-# 每周五扫描新增视频
-uv run python stage1_extract_propose.py -d "F:\Videos" -a -o "weekly_review.csv"
-```
-
-### 4. 集成到自动化流程
-
-创建 PowerShell 脚本 `auto_rename.ps1`：
-```powershell
-param($TargetDir)
-
-# 阶段一
-python stage1_extract_propose.py -d $TargetDir
-
-# 自动确认所有记录（谨慎使用！）
-$csv = Import-Csv title_review.csv
-$csv | ForEach-Object { $_.review_status = "已确认" }
-$csv | Export-Csv title_review.csv -NoTypeEncoding -Encoding UTF8
-
-# 阶段二
-python stage2_apply_rename.py --dry-run
-Write-Host "模拟完成，按任意键继续执行..."
-pause
-python stage2_apply_rename.py
-```
-
-### 5. 质量检查清单
-
-执行前确认：
-- [ ] 已备份重要数据
-- [ ] 已运行 `--dry-run` 并检查输出
-- [ ] CSV 编码为 UTF-8 with BOM
-- [ ] 无视频文件正在被占用
-- [ ] 磁盘空间充足（重命名不占空间，但需预留日志空间）
-- [ ] 已排除系统目录与临时文件夹
-
----
-
-## 技术支持
-
-**问题反馈**：
-- 检查 `scan_errors.log` 和 `rename_log.txt`
-- 提供终端完整输出
-- 提供问题 CSV 行的截图（脱敏敏感信息）
-
-**性能优化建议**：
-- 10,000+ 视频：建议使用 SSD 并排除无关目录
-- 100,000+ 视频：分批处理，每批 ≤ 20,000 个文件
-- 网络驱动器：使用本地缓存或映射为网络驱动器
-
----
- 
 ## 更新日志
- 
-### v1.0.0（当前版本）
-- ✅ 双阶段安全重命名
-- ✅ Jieba 分词 + TF-IDF 关键词提取
-- ✅ 目录排除功能
-- ✅ 增量追加模式
-- ✅ 冲突自动避让
-- ✅ 详细日志系统
- 
+
+### v5.0.0（当前版本）
+- **重大更新**：CLIP 本地预分类，支持多标签输出
+- **重大更新**：关键帧检测，基于帧差异自动检测视频关键帧
+- **重大更新**：人体区域检测，专注人物穿着变化
+- **重大更新**：Embedding 变化检测，基于 CLIP embedding 相似度检测穿着变化
+- **重大更新**：多帧 VLM，支持送入多帧给云端 VLM
+- **重大更新**：Stage1b AI优化支持预览编辑，只处理needs_vision=false的标题
+- **重大更新**：统一 Provider 管理，支持自定义 Provider
+- 新增纯色帧检测（黑屏/白屏），自动过滤无效帧
+- 优化帧选择策略，跳过视频开头和结尾
+- 新增 GUI 工具提示功能，鼠标悬停显示功能说明
+- 新增 Stage1b 右键菜单：采用原标题、编辑、删除
+- 新增 Provider 可用性自动检测
+- GUI Provider 改为下拉框自动检测
+- 修复 Windows 编码问题（特殊字符如❤等）
+- 修复图片处理vlm_frames未初始化问题
+- 修复`[未分类]`文件强制重分类问题
+
+### v4.0.0
+- 支持图片文件（.jpg, .jpeg, .png, .bmp, .webp, .gif, .tiff）
+- 人体检测预处理默认启用（UHD 超轻量模型）
+- 新增智能压缩、水印优先功能
+
+### v3.0.0
+- 新增阶段 1c：视觉理解提取关键词
+- 新增 gcli API 支持
+
+### v2.0.0
+- 新增阶段 1b：AI 优化标题
+- 新增自动跳过已分类文件
+
+### v1.0.0
+- 双阶段安全重命名
+- Jieba 分词 + TF-IDF 关键词提取
+
 ---
- 
-## 明日更新计划
- 
-明天我们将进行重大更新，引入视频内容理解能力，使工具不仅能处理文件名，还能理解视频实际内容进行分类：
- 
-### 核心新功能
-1. **视频帧特征提取**：使用预训练的视频理解模型（如 VideoMAE、TimesFormer）提取视频时空特征
-2. **多模态融合**：结合视觉特征、音频特征和文本特征（标题、描述）进行综合分类
-3. **自定义分类体系**：支持用户定义自己的视频分类标签体系
-4. **置信度评分**：为每个分类结果提供置信度评分，帮助用户判断结果可靠性
- 
-### 技术实现
-- 基于 Hugging Face Transformers 库的视频模型
-- 使用 LoRA（Low-Rank Adaptation）技术进行高效微调，减少训练资源消耗
-- 支持增量学习，可在保留已有知识的同时学习新分类
-- 优化推理速度，实现批量视频处理的实时性
- 
-### 使用流程
-1. **标注阶段**：用户对部分视频进行人工标注，建立训练数据集
-2. **训练阶段**：使用标注数据微调预训练视频模型
-3. **推理阶段**：对未标注视频进行自动分类，生成分类建议
-4. **验证阶段**：用户审核分类结果，可修正错误预测以持续改进模型
- 
-### 预期效果
-- 将现有的基于文件名的分类提升到基于视频内容的语义理解
-- 减少因文件名不准确导致的误分类
-- 支持更细粒度的视频分类（如区分不同类型的教程、不同运动项目的比赛录像等）
-- 为后续的视频检索、推荐系统提供更准确的标签
- 
+
+## 许可证
+
+MIT License
+
 ---
- 
-**祝您使用愉快！如有建议或需求，欢迎反馈。** 🎬
+
+**如有建议或需求，欢迎反馈！**

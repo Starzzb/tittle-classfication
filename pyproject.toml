@@ -4,19 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tittle-classfication"
-version = "0.1.0"
+version = "4.0.0"
 description = "视频标题分类和重命名工具"
 readme = "readme.md"
 requires-python = ">=3.8"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Starzzb"}
 ]
-keywords = ["video", "classification", "rename", "nlp", "bert"]
+keywords = ["video", "classification", "rename", "nlp", "ollama", "zhipu", "vision", "mimo"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
@@ -24,11 +23,20 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 
-[project.dependencies]
-transformers = "^4.30.0"
-pandas = "^2.0.0"
-jieba = "^0.42.1"
-torch = "^2.0.0"
+dependencies = [
+    "pandas>=2.0.0",
+    "jieba>=0.42.1",
+    "onnxruntime>=1.16.0",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "Pillow>=9.0.0",
+    "open-clip-torch>=2.20.0",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+]
+
+[tool.setuptools]
+py-modules = ["renamecsv", "stage1_extract_propose", "stage1b_ai_refine", "stage1c_vision_refine", "stage1c_frame_selector", "stage1c_clip_classifier", "tag_statistics", "stage2_apply_rename", "gui"]
 
 [project.urls]
 Homepage = "https://github.com/Starzzb/tittle-classfication"

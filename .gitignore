@@ -1,4 +1,8 @@
 models/
-*.log
-*.csv
+logs/
+output/
 .venv/
+.env
+*.pyc
+__pycache__/
+_vision_tmp/
