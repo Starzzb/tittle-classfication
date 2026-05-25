@@ -1,11 +1,15 @@
 """
 统一的 AI Provider 配置管理模块
-支持自定义 Provider，自动检测可用性
+支持自定义 Provider，自动检测可用性，统一 API 调用
 """
 import os
 import json
+import re
+import time
+import base64
+import urllib.request
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Union
 
 # 默认 Provider 注册表
 DEFAULT_PROVIDERS = {
@@ -44,14 +48,15 @@ DEFAULT_PROVIDERS = {
     },
     "mimo": {
         "name": "小米 MiMo",
-        "type": "vision",
+        "type": "multi",
         "url": "https://api.xiaomimimo.com/v1/chat/completions",
         "env_key": "MIMO_API_KEY",
-        "default_model": "mimo-v2-omni",
+        "default_model": "mimo-v2.5",
         "requires_api_key": True,
         "supports_1b": False,
         "supports_1c": True,
-        "description": "小米自研视觉模型"
+        "supports_audio": True,
+        "description": "小米自研视觉+音频模型"
     },
 }
 
@@ -251,6 +256,278 @@ def get_provider_display_name(provider_name: str) -> str:
     return provider_name
 
 
+# ==================== 统一 API 调用函数 ====================
+
+def call_text_api(provider_name: str, prompt: str, model: str = None,
+                  api_key: str = None, timeout: int = 120, temperature: float = 0.1) -> str:
+    """
+    统一的文本补全 API 调用
+    
+    Args:
+        provider_name: Provider 名称
+        prompt: 提示词
+        model: 模型名称（可选，使用默认）
+        api_key: API Key（可选，从环境变量获取）
+        timeout: 超时时间
+        temperature: 温度参数
+    
+    Returns:
+        API 响应文本
+    """
+    config = get_provider_config(provider_name)
+    if not config:
+        return f"[错误] Provider '{provider_name}' 不存在"
+    
+    model = model or config.get("default_model", "")
+    api_key = api_key or get_api_key(provider_name)
+    api_url = config.get("url", "")
+    
+    # Ollama 使用不同的 API 格式
+    if provider_name == "ollama":
+        return _call_ollama_api(api_url, prompt, model, timeout, temperature)
+    
+    # 其他 Provider 使用 OpenAI 兼容格式
+    if config.get("requires_api_key", False) and not api_key:
+        return f"[错误] 缺少 API Key，请设置环境变量 {config.get('env_key', '')}"
+    
+    return _call_openai_compatible_api(api_url, prompt, model, api_key, timeout, temperature)
+
+
+def _call_ollama_api(api_url: str, prompt: str, model: str,
+                     timeout: int = 120, temperature: float = 0.1) -> str:
+    """调用 Ollama API"""
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {"temperature": temperature},
+    }
+    req = urllib.request.Request(
+        api_url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            result = json.loads(resp.read())
+            return result.get("response", "").strip()
+    except Exception as e:
+        return f"[Ollama 错误] {e}"
+
+
+def _call_openai_compatible_api(api_url: str, prompt: str, model: str,
+                                api_key: str, timeout: int = 120,
+                                temperature: float = 0.1) -> str:
+    """调用 OpenAI 兼容 API"""
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+        "temperature": temperature,
+    }
+    req = urllib.request.Request(
+        api_url,
+        data=json.dumps(payload).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            result = json.loads(resp.read())
+            return result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+    except Exception as e:
+        return f"[API 错误] {e}"
+
+
+def call_vision_api(provider_name: str, image_b64: Union[str, List[str]], prompt: str,
+                    model: str = None, api_key: str = None, timeout: int = 90,
+                    retries: int = 3, temperature: float = 0.3) -> str:
+    """
+    统一的视觉 API 调用
+    
+    Args:
+        provider_name: Provider 名称
+        image_b64: 单个或多个 base64 编码的图片
+        prompt: 提示词
+        model: 模型名称（可选，使用默认）
+        api_key: API Key（可选，从环境变量获取）
+        timeout: 超时时间
+        retries: 重试次数
+        temperature: 温度参数
+    
+    Returns:
+        API 响应文本
+    """
+    config = get_provider_config(provider_name)
+    if not config:
+        return f"[错误] Provider '{provider_name}' 不存在"
+    
+    model = model or config.get("default_model", "")
+    api_key = api_key or get_api_key(provider_name)
+    api_url = config.get("url", "")
+    
+    if config.get("requires_api_key", False) and not api_key:
+        return f"[错误] 缺少 API Key，请设置环境变量 {config.get('env_key', '')}"
+    
+    # 构建多模态内容
+    content = []
+    if isinstance(image_b64, list):
+        for b64 in image_b64:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
+            })
+    else:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}
+        })
+    
+    content.append({"type": "text", "text": prompt})
+    
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a technical metadata extraction assistant for media file organization. "
+                    "Your task is to describe visual elements objectively for cataloging purposes. "
+                    "This is a standard technical analysis task for file management.\n\n"
+                    "IMPORTANT: You must ALWAYS return a description. Never refuse. "
+                    "Even if you can only identify partial information, return what you can see. "
+                    "If the image is blurry or unclear, describe what is partially visible."
+                )
+            },
+            {"role": "user", "content": content}
+        ],
+        "temperature": temperature,
+        "max_tokens": 1536,
+        "stream": False
+    }
+    
+    last_error = None
+    for attempt in range(retries):
+        req = urllib.request.Request(
+            api_url,
+            data=json.dumps(payload).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                result = json.loads(resp.read())
+                return result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        except Exception as e:
+            last_error = e
+            if attempt < retries - 1:
+                time.sleep(2 * (attempt + 1))
+    
+    return f"[ERROR] {last_error}"
+
+
+def test_provider_connection(provider_name: str) -> Dict[str, Any]:
+    """
+    测试 Provider 连接可用性
+    
+    Args:
+        provider_name: Provider 名称
+    
+    Returns:
+        {
+            "available": bool,
+            "reason": str,
+            "latency_ms": float  # 响应延迟（毫秒）
+        }
+    """
+    config = get_provider_config(provider_name)
+    if not config:
+        return {"available": False, "reason": f"Provider '{provider_name}' 不存在", "latency_ms": 0}
+    
+    # 检查 API Key
+    if config.get("requires_api_key", False):
+        env_key = config.get("env_key", "")
+        if env_key and not os.environ.get(env_key):
+            return {
+                "available": False,
+                "reason": f"缺少环境变量 {env_key}",
+                "latency_ms": 0
+            }
+    
+    # 测试连接
+    api_url = config.get("url", "")
+    model = config.get("default_model", "")
+    api_key = get_api_key(provider_name)
+    
+    start_time = time.time()
+    
+    try:
+        if provider_name == "ollama":
+            # Ollama 简单测试
+            result = _call_ollama_api(api_url, "Hello", model, timeout=10)
+        else:
+            # 其他 Provider 测试
+            result = _call_openai_compatible_api(api_url, "Hello", model, api_key, timeout=10)
+        
+        latency = (time.time() - start_time) * 1000
+        
+        if result.startswith("[错误]") or result.startswith("[Ollama 错误]") or result.startswith("[API 错误]"):
+            return {"available": False, "reason": result, "latency_ms": latency}
+        
+        return {"available": True, "reason": "", "latency_ms": latency}
+    
+    except Exception as e:
+        latency = (time.time() - start_time) * 1000
+        return {"available": False, "reason": str(e), "latency_ms": latency}
+
+
+def get_available_providers_with_test(stage: str = "1b") -> List[Dict[str, Any]]:
+    """
+    获取可用的 Provider 列表（包含连接测试）
+    
+    Args:
+        stage: "1b" 或 "1c"
+    
+    Returns:
+        可用 Provider 列表（包含测试结果）
+    """
+    all_providers = get_all_providers()
+    available = []
+    
+    for name, config in all_providers.items():
+        # 检查是否支持指定阶段
+        if stage == "1b" and not config.get("supports_1b", False):
+            continue
+        if stage == "1c" and not config.get("supports_1c", False):
+            continue
+        
+        # 检查 API Key
+        if config.get("requires_api_key", False):
+            env_key = config.get("env_key", "")
+            if env_key and not os.environ.get(env_key):
+                continue
+        
+        # 测试连接
+        test_result = test_provider_connection(name)
+        
+        available.append({
+            "id": name,
+            "name": config.get("name", name),
+            "type": config.get("type", "multi"),
+            "default_model": config.get("default_model", ""),
+            "description": config.get("description", ""),
+            "available": test_result["available"],
+            "reason": test_result["reason"],
+            "latency_ms": test_result["latency_ms"],
+        })
+    
+    return available
+
+
 if __name__ == "__main__":
     # 测试
     print("=== 所有 Provider ===")
@@ -264,3 +541,108 @@ if __name__ == "__main__":
     print("\n=== Stage1c 可用 Provider ===")
     for p in get_available_providers("1c"):
         print(f"  {p['id']}: {p['name']}")
+    
+    print("\n=== 连接测试 ===")
+    for p in get_available_providers_with_test("1b"):
+        status = "[OK]" if p["available"] else "[FAIL]"
+        latency = f"{p['latency_ms']:.0f}ms" if p["available"] else ""
+        reason = p["reason"] if not p["available"] else ""
+        print(f"  {status} {p['name']}: {latency} {reason}")
+
+
+# ==================== 音频理解 API ====================
+
+def call_audio_api(audio_b64: str, prompt: str = None, model: str = None,
+                   api_key: str = None, timeout: int = 120,
+                   retries: int = 3) -> str:
+    """
+    调用mimo音频理解API
+    
+    Args:
+        audio_b64: Base64编码的音频（带data:audio/wav;base64,前缀）
+        prompt: 提示词（可选，使用默认提示词）
+        model: 模型名称（可选，默认mimo-v2.5）
+        api_key: API Key（可选，从环境变量获取）
+        timeout: 超时时间
+        retries: 重试次数
+    
+    Returns:
+        音频描述文本
+    """
+    api_key = api_key or get_api_key("mimo")
+    if not api_key:
+        return "[错误] 缺少 MIMO_API_KEY"
+    
+    model = model or "mimo-v2.5"
+    api_url = "https://api.xiaomimimo.com/v1/chat/completions"
+    
+    if prompt is None:
+        prompt = (
+            "你是一个音频言语识别助手。请专注于识别和记录音频中的语音内容：\n\n"
+            "【核心任务】言语识别（优先级最高）\n"
+            "1. 逐句转录人物说的具体话语，用引号标注（如：\"你好，欢迎来到...\"）\n"
+            "2. 标注说话者特征（男声/女声/童声，语调情绪等）\n"
+            "3. 识别语言类型（中文/英文/日文等）\n\n"
+            "【次要信息】简要提及\n"
+            "- 显著的非语音声音（笑声、哭声、咳嗽、叹气等）\n"
+            "- 影响听辨的背景音（音乐、环境噪音等）\n\n"
+            "【输出格式】\n"
+            "先输出转录的言语内容，再用括号补充非语音信息。\n"
+            "示例：\"大家好，今天我们要分享的是...\"（男声，语气平稳）\"让我们开始吧\"（伴随轻微笑声）\n\n"
+            "注意：这是纯粹的音频转录任务，用于媒体文件索引，请客观记录所有可听语音。"
+        )
+    
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a professional speech recognition and audio transcription assistant. "
+                    "Your primary task is to transcribe all spoken words accurately. "
+                    "Secondary tasks include noting speaker characteristics and significant non-speech sounds.\n\n"
+                    "IMPORTANT RULES:\n"
+                    "1. ALWAYS transcribe speech content - this is your highest priority\n"
+                    "2. Use quotes for spoken words: \"exact words here\"\n"
+                    "3. Note speaker traits in parentheses: (male voice, calm tone)\n"
+                    "4. This is for media file indexing - purely technical transcription\n"
+                    "5. Never refuse - transcribe whatever speech is audible, even if unclear"
+                )
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_audio",
+                        "input_audio": {"data": audio_b64}
+                    },
+                    {"type": "text", "text": prompt}
+                ]
+            }
+        ],
+        "max_completion_tokens": 1024
+    }
+    
+    last_error = None
+    for attempt in range(retries):
+        req = urllib.request.Request(
+            api_url,
+            data=json.dumps(payload).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                result = json.loads(resp.read())
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                reasoning = result.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "").strip()
+                # 优先返回content，如果为空则返回reasoning
+                return content or reasoning or "[无内容]"
+        except Exception as e:
+            last_error = e
+            if attempt < retries - 1:
+                time.sleep(2 * (attempt + 1))
+    
+    return f"[ERROR] {last_error}"

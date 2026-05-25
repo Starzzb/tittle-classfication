@@ -15,7 +15,7 @@ from datetime import datetime
 from providers import (
     get_available_providers, get_provider_config, get_api_key,
     check_provider_availability, get_provider_display_name,
-    get_providers_for_gui
+    get_providers_for_gui, call_text_api, test_provider_connection
 )
 
 PROJECT_DIR = Path(__file__).parent.resolve()
@@ -238,6 +238,11 @@ class App(tk.Tk):
         
         self.s1b_provider_combo.bind("<<ComboboxSelected>>", self._on_s1b_provider_change)
         
+        # 检测按钮
+        test_btn = ttk.Button(prov_frame, text="检测", command=self._test_s1b_provider, width=6)
+        test_btn.pack(side=tk.LEFT, padx=4)
+        ToolTip(test_btn, "测试当前 Provider 的连接可用性\n会发送一个简单的测试请求")
+        
         # Provider 描述标签
         self.s1b_prov_desc = ttk.Label(prov_frame, text="", foreground="gray")
         self.s1b_prov_desc.pack(side=tk.LEFT, padx=4)
@@ -324,6 +329,29 @@ class App(tk.Tk):
         if idx >= 0 and idx < len(self.s1b_providers):
             desc = self.s1b_providers[idx].get("description", "")
             self.s1b_prov_desc.config(text=desc)
+
+    def _test_s1b_provider(self):
+        """测试 Stage1b Provider 连接"""
+        provider_id = self._get_s1b_provider_id()
+        provider_name = get_provider_display_name(provider_id)
+        
+        print(f"[检测] 正在测试 {provider_name} 连接...")
+        
+        def _worker():
+            result = test_provider_connection(provider_id)
+            if result["available"]:
+                latency = result["latency_ms"]
+                print(f"[检测] {provider_name} 可用 (延迟: {latency:.0f}ms)")
+                self.after(0, lambda: messagebox.showinfo("检测结果", 
+                    f"{provider_name} 连接正常\n延迟: {latency:.0f}ms"))
+            else:
+                reason = result["reason"]
+                print(f"[检测] {provider_name} 不可用: {reason}")
+                self.after(0, lambda: messagebox.showwarning("检测结果", 
+                    f"{provider_name} 连接失败\n原因: {reason}"))
+        
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _get_s1b_provider_id(self):
         """获取当前选择的 Stage1b Provider ID"""
@@ -461,20 +489,10 @@ class App(tk.Tk):
         
         def _worker():
             try:
-                # 导入AI优化模块
-                from stage1b_ai_refine import call_ollama_batch, call_zhipu_batch, call_gcli_batch
+                # 导入统一的调用函数
+                from stage1b_ai_refine import call_provider_batch, parse_batch_response, build_batch_prompt
+                from providers import call_text_api
                 
-                call_fns = {
-                    "ollama": call_ollama_batch,
-                    "zhipu": call_zhipu_batch,
-                    "gcli": call_gcli_batch
-                }
-                call_fn = call_fns.get(provider)
-                if not call_fn:
-                    print(f"[错误] 不支持的Provider: {provider}")
-                    return
-                
-                # 使用 providers 模块获取 API Key
                 api_key = get_api_key(provider)
                 
                 # 分批处理
@@ -484,11 +502,13 @@ class App(tk.Tk):
                     
                     print(f"[AI优化] 处理批次 {batch_start//batch_size + 1}, {len(titles)} 条")
                     
-                    # 调用AI
-                    if provider == "ollama":
-                        results = call_fn(titles=titles, model=model)
-                    else:
-                        results = call_fn(titles=titles, model=model, api_key=api_key)
+                    # 使用统一的 Provider 调用
+                    results = call_provider_batch(
+                        titles=titles,
+                        provider=provider,
+                        model=model,
+                        api_key=api_key
+                    )
                     
                     # 更新预览表格
                     for (row, result) in zip(batch, results):
@@ -647,6 +667,11 @@ class App(tk.Tk):
             self.s1c_provider_combo.current(0)
         
         self.s1c_provider_combo.bind("<<ComboboxSelected>>", self._on_s1c_provider_change)
+        
+        # 检测按钮
+        test_btn = ttk.Button(prov_frame, text="检测", command=self._test_s1c_provider, width=6)
+        test_btn.pack(side=tk.LEFT, padx=4)
+        ToolTip(test_btn, "测试当前 Provider 的连接可用性\n会发送一个简单的测试请求")
         
         # Provider 描述标签
         self.s1c_prov_desc = ttk.Label(prov_frame, text="", foreground="gray")
@@ -882,6 +907,29 @@ class App(tk.Tk):
         if idx >= 0 and idx < len(self.s1c_providers):
             desc = self.s1c_providers[idx].get("description", "")
             self.s1c_prov_desc.config(text=desc)
+
+    def _test_s1c_provider(self):
+        """测试 Stage1c Provider 连接"""
+        provider_id = self._get_s1c_provider_id()
+        provider_name = get_provider_display_name(provider_id)
+        
+        print(f"[检测] 正在测试 {provider_name} 连接...")
+        
+        def _worker():
+            result = test_provider_connection(provider_id)
+            if result["available"]:
+                latency = result["latency_ms"]
+                print(f"[检测] {provider_name} 可用 (延迟: {latency:.0f}ms)")
+                self.after(0, lambda: messagebox.showinfo("检测结果", 
+                    f"{provider_name} 连接正常\n延迟: {latency:.0f}ms"))
+            else:
+                reason = result["reason"]
+                print(f"[检测] {provider_name} 不可用: {reason}")
+                self.after(0, lambda: messagebox.showwarning("检测结果", 
+                    f"{provider_name} 连接失败\n原因: {reason}"))
+        
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _get_s1c_provider_id(self):
         """获取当前选择的 Stage1c Provider ID"""

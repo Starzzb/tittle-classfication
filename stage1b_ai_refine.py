@@ -4,13 +4,10 @@ import os
 import re
 import time
 import argparse
-import urllib.request
 from pathlib import Path
 from datetime import datetime
 
 LOG_FILE = "logs/api_refine_log.txt"
-ZHIPU_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-GCLI_API_URL = "https://gcli.ggchan.dev/v1/chat/completions"
 
 
 def load_env(env_path: Path):
@@ -67,73 +64,37 @@ def parse_batch_response(response: str, count: int) -> list[str]:
     return results[:count]
 
 
-def call_ollama_batch(titles: list[str], model: str, timeout: int = 120) -> list[str]:
-    payload = {
-        "model": model,
-        "prompt": build_batch_prompt(titles),
-        "stream": False,
-        "options": {"temperature": 0.1},
-    }
-    req = urllib.request.Request(
-        "http://localhost:11434/api/generate",
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+def call_provider_batch(titles: list[str], provider: str, model: str,
+                       api_key: str = None, timeout: int = 120) -> list[str]:
+    """
+    统一的 Provider 批量调用函数
+    
+    Args:
+        titles: 标题列表
+        provider: Provider 名称
+        model: 模型名称
+        api_key: API Key（可选）
+        timeout: 超时时间
+    
+    Returns:
+        优化后的标题列表
+    """
+    from providers import call_text_api
+    
+    prompt = build_batch_prompt(titles)
+    result = call_text_api(
+        provider_name=provider,
+        prompt=prompt,
+        model=model,
+        api_key=api_key,
+        timeout=timeout,
+        temperature=0.1
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            result = json.loads(resp.read())
-            text = result.get("response", "").strip()
-            return parse_batch_response(text, len(titles))
-    except Exception as e:
-        return [f"[Ollama 错误] {e}"] * len(titles)
-
-
-def call_zhipu_batch(titles: list[str], model: str, api_key: str, timeout: int = 120) -> list[str]:
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": build_batch_prompt(titles)}],
-        "stream": False,
-        "temperature": 0.1,
-    }
-    req = urllib.request.Request(
-        ZHIPU_API_URL,
-        data=json.dumps(payload).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            result = json.loads(resp.read())
-            text = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-            return parse_batch_response(text, len(titles))
-    except Exception as e:
-        return [f"[智谱错误] {e}"] * len(titles)
-
-
-def call_gcli_batch(titles: list[str], model: str, api_key: str, timeout: int = 120) -> list[str]:
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": build_batch_prompt(titles)}],
-        "stream": False,
-        "temperature": 0.1,
-    }
-    req = urllib.request.Request(
-        GCLI_API_URL,
-        data=json.dumps(payload).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            result = json.loads(resp.read())
-            text = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-            return parse_batch_response(text, len(titles))
-    except Exception as e:
-        return [f"[gcli 错误] {e}"] * len(titles)
+    
+    if result.startswith("[错误]") or result.startswith("[Ollama 错误]") or result.startswith("[API 错误]"):
+        return [result] * len(titles)
+    
+    return parse_batch_response(result, len(titles))
 
 
 def main():
@@ -193,19 +154,13 @@ def main():
             fieldnames.append(col)
         if "needs_vision" not in fieldnames:
             fieldnames.append("needs_vision")
+        if "final_name" not in fieldnames:
+            fieldnames.append("final_name")
         rows = list(reader)
 
     if not rows:
         print("CSV 中无数据")
         return
-
-    call_fns = {
-        "ollama": call_ollama_batch,
-        "zhipu": call_zhipu_batch,
-        "gcli": call_gcli_batch,
-    }
-    call_fn = call_fns[provider]
-    extra_kwargs = {} if provider == "ollama" else {"api_key": api_key}
 
     pending = [(i, row) for i, row in enumerate(rows)
                if row.get("original_title", "").strip() 
@@ -232,7 +187,7 @@ def main():
                 log_message(f"  [模拟] {row['original_title'][:40]}")
             continue
 
-        results = call_fn(titles=titles, model=model, **extra_kwargs)
+        results = call_provider_batch(titles=titles, provider=provider, model=model, api_key=api_key)
 
         for (idx, row), suggestion in zip(batch, results):
             original = row["original_title"].strip()

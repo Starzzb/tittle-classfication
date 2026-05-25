@@ -10,6 +10,7 @@ import argparse
 import urllib.request
 from pathlib import Path
 from datetime import datetime
+from typing import Union, List
 
 # 人体检测模块
 try:
@@ -40,23 +41,7 @@ VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.webm', '.m
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.gif', '.tiff'}
 
 # 使用统一的 Provider 配置
-from providers import get_provider_config, get_api_key as get_provider_api_key
-
-# 兼容旧代码的 PROVIDER_CONFIGS
-def _get_provider_configs():
-    """从 providers.py 获取配置，兼容旧代码"""
-    configs = {}
-    for name in ["mimo", "gcli"]:
-        config = get_provider_config(name)
-        if config:
-            configs[name] = {
-                "url": config["url"],
-                "env_key": config["env_key"],
-                "default_model": config["default_model"],
-            }
-    return configs
-
-PROVIDER_CONFIGS = _get_provider_configs()
+from providers import get_provider_config, get_api_key as get_provider_api_key, call_vision_api as provider_call_vision_api
 
 
 def load_env(env_path: Path):
@@ -91,6 +76,49 @@ def is_image_file(file_path: str) -> bool:
 def is_video_file(file_path: str) -> bool:
     """判断是否为视频文件"""
     return Path(file_path).suffix.lower() in VIDEO_EXTENSIONS
+
+
+def is_vision_result_complete(row: dict) -> bool:
+    """
+    检查行是否有完整的vision结果
+    
+    完整结果定义：
+    - vision_keywords 不为空
+    - vision_description 不为空且不是错误信息
+    - final_name 已更新（包含方括号格式）
+    """
+    keywords = row.get("vision_keywords", "").strip()
+    description = row.get("vision_description", "").strip()
+    final_name = row.get("final_name", "").strip()
+    
+    # 检查关键词是否存在
+    if not keywords:
+        return False
+    
+    # 检查描述是否存在且不是错误
+    if not description or description.startswith("[ERROR]"):
+        return False
+    
+    # 检查final_name是否已更新（包含方括号格式）
+    if not final_name or not final_name.startswith("["):
+        return False
+    
+    return True
+
+
+def save_rows_to_csv(rows: list, fieldnames: list, output_path: str):
+    """
+    增量保存rows到CSV文件
+    
+    Args:
+        rows: 数据行列表
+        fieldnames: 列名列表
+        output_path: 输出文件路径
+    """
+    with open(output_path, 'w', encoding='utf-8-sig', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def compress_image(input_path: str, output_path: str, max_size: int = 800, quality: int = 85) -> bool:
@@ -475,80 +503,38 @@ def parse_vision_response(response: str) -> dict:
     return result
 
 
-def call_vision_api(image_b64: str, title: str, model: str, api_url: str,
-                    api_key: str, timeout: int = 90, retries: int = 3,
-                    n_frames: int = 1) -> dict:
-    # 构建多帧内容
-    content = []
+def call_vision_api(image_b64: Union[str, List[str]], title: str, provider: str,
+                    model: str = None, api_key: str = None, timeout: int = 90,
+                    retries: int = 3, n_frames: int = 1) -> dict:
+    """
+    调用视觉 API
     
-    # 添加所有图片
-    if isinstance(image_b64, list):
-        for b64 in image_b64:
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
-            })
-    else:
-        content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}
-        })
+    Args:
+        image_b64: 单个或多个 base64 编码的图片
+        title: 标题
+        provider: Provider 名称
+        model: 模型名称（可选）
+        api_key: API Key（可选）
+        timeout: 超时时间
+        retries: 重试次数
+        n_frames: 帧数
     
-    # 添加文本提示
-    content.append({
-        "type": "text",
-        "text": build_vision_prompt(title, n_frames)
-    })
+    Returns:
+        {"description": str, "keywords": str}
+    """
+    prompt = build_vision_prompt(title, n_frames)
     
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a technical metadata extraction assistant for media file organization. "
-                    "Your task is to describe visual elements objectively for cataloging purposes. "
-                    "This is a standard technical analysis task for file management.\n\n"
-                    "IMPORTANT: You must ALWAYS return a description. Never refuse. "
-                    "Even if you can only identify partial information, return what you can see. "
-                    "If the image is blurry or unclear, describe what is partially visible.\n\n"
-                    "Focus on extracting:\n"
-                    "1) Any visible text, watermarks, or overlays (blogger names, platform names like Telegram/Twitter/TikTok)\n"
-                    "2) General scene description (setting, objects, colors, composition)\n"
-                    "3) Notable visual elements (clothing style, activities, environment)\n\n"
-                    "Note: @-prefixed strings are channel/group identifiers, not creator names. "
-                    "Always provide your best description based on what you see."
-                )
-            },
-            {
-                "role": "user",
-                "content": content
-            }
-        ],
-        "temperature": 0.3,
-        "max_completion_tokens": 1536,
-        "stream": False
-    }
-    last_error = None
-    for attempt in range(retries):
-        req = urllib.request.Request(
-            api_url,
-            data=json.dumps(payload).encode(),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                result = json.loads(resp.read())
-                text = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-                return parse_vision_response(text)
-        except Exception as e:
-            last_error = e
-            if attempt < retries - 1:
-                time.sleep(2 * (attempt + 1))
-    return {"description": f"[ERROR] {last_error}", "keywords": ""}
+    result = provider_call_vision_api(
+        provider_name=provider,
+        image_b64=image_b64,
+        prompt=prompt,
+        model=model,
+        api_key=api_key,
+        timeout=timeout,
+        retries=retries
+    )
+    
+    return parse_vision_response(result)
 
 
 def main():
@@ -619,17 +605,23 @@ def main():
                         help="Embedding相似度阈值，低于此值认为有变化（默认0.75，稳健值）")
     args = parser.parse_args()
 
-    config = PROVIDER_CONFIGS[args.provider]
-    model = args.model or config["default_model"]
-    api_url = config["url"]
-    api_key = args.api_key or os.environ.get(config["env_key"], "")
+    # 使用统一的 Provider 配置
+    provider = args.provider
+    provider_config = get_provider_config(provider)
+    
+    if not provider_config:
+        print(f"错误: 未知的 Provider '{provider}'")
+        return
+    
+    model = args.model or provider_config.get("default_model", "")
+    api_key = args.api_key or get_provider_api_key(provider)
     
     # 处理embedding检测参数
     if args.no_embedding_detection:
         args.use_embedding_detection = False
 
-    if not api_key:
-        print(f"错误: 需要提供 --api-key 或设置 {config['env_key']} 环境变量")
+    if provider_config.get("requires_api_key", False) and not api_key:
+        print(f"错误: 需要提供 --api-key 或设置 {provider_config.get('env_key', '')} 环境变量")
         return
 
     csv_path = Path(args.csv).resolve()
@@ -690,11 +682,11 @@ def main():
     elif args.all:
         pending = [(i, row) for i, row in enumerate(rows)
                    if row.get("original_title", "").strip()
-                   and not row.get("vision_keywords", "").strip()]
+                   and not is_vision_result_complete(row)]
     elif has_needs_vision:
         pending = [(i, row) for i, row in enumerate(rows)
                    if row.get("original_title", "").strip()
-                   and not row.get("vision_keywords", "").strip()
+                   and not is_vision_result_complete(row)
                    and row.get("needs_vision", "").strip().lower() == "true"]
     else:
         meaningless_pattern = re.compile(
@@ -723,7 +715,7 @@ def main():
             return False
         pending = [(i, row) for i, row in enumerate(rows)
                    if row.get("original_title", "").strip()
-                   and not row.get("vision_keywords", "").strip()
+                   and not is_vision_result_complete(row)
                    and is_meaningless(row["original_title"])]
 
     skip_count = len(rows) - len(pending)
@@ -1024,13 +1016,15 @@ def main():
             if is_video_file(file_path) and len(valid_vlm_frames) > 1:
                 # 多帧模式
                 images_b64 = [image_to_base64(fp, max_size=args.max_image_size) for fp in valid_vlm_frames]
-                result = call_vision_api(images_b64, original, model, api_url, api_key,
+                result = call_vision_api(images_b64, original, provider=provider,
+                                        model=model, api_key=api_key,
                                         retries=args.retries, n_frames=len(valid_vlm_frames))
             else:
                 # 单帧模式
                 tmp_img = valid_vlm_frames[0]
                 image_b64 = image_to_base64(tmp_img, max_size=args.max_image_size)
-                result = call_vision_api(image_b64, original, model, api_url, api_key,
+                result = call_vision_api(image_b64, original, provider=provider,
+                                        model=model, api_key=api_key,
                                         retries=args.retries)
 
             description = result.get("description", "")
@@ -1069,6 +1063,11 @@ def main():
             # 清理临时文件
             if os.path.exists(tmp_img) and tmp_img != file_path:
                 os.remove(tmp_img)
+            
+            # 每处理完一个视频立即写入CSV
+            if not args.dry_run:
+                save_rows_to_csv(rows, fieldnames, str(output_path))
+                log_message(f"  [保存] 已写入CSV")
 
         if batch_start + batch_size < len(pending):
             time.sleep(args.delay)
@@ -1083,10 +1082,8 @@ def main():
         print("模拟模式结束，未写入文件")
         return
 
-    with open(output_path, 'w', encoding='utf-8-sig', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+    # 最终保存（确保所有数据已写入）
+    save_rows_to_csv(rows, fieldnames, str(output_path))
 
     print(f"结果已保存至: {output_path}")
 
