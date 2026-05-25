@@ -447,27 +447,25 @@ class VisionProcessor:
 
 关键词必须聚焦以下维度（按优先级排序）：
 
-第一优先级 - 人物穿着（必须包含）：
+第一优先级 - 水印博主名字（最优先，必须包含）：
+- 博主昵称/艺名（如：Sexy Yuki、UUbabydoll、ciyuanbb等）
+- 只提取人物名称，不提取频道名、群组名
+- 过滤掉：网址、域名、@群组名、频道链接、广告内容
+- 过滤规则：包含 .com .cc .net .org @ http www 等的内容一律忽略
+
+第二优先级 - 人物穿着（必须包含）：
 - 服装类型：女仆装、校服、JK制服、旗袍、护士装、泳衣、内衣等
 - 服饰细节：丝袜、过膝袜、高跟鞋、蕾丝、蝴蝶结等
 - 颜色描述：黑色丝袜、白色衬衫、红色裙子等
 - 发型特征：双马尾、长发、短发、马尾辫、丸子头等
 
-第二优先级 - 姿势动作（必须包含）：
+第三优先级 - 姿势动作（必须包含）：
 - 基本姿势：站立、坐姿、跪姿、蹲姿、躺卧、弯腰
 - 动作描述：自拍、跳舞、行走、摆拍、转身等
 - 姿态特征：弓背、张腿、侧卧等
 
-第三优先级 - 行为互动：
-- 人物行为：亲吻、拥抱、抚摸、牵手等
-- 互动方式：独处、双人、多人等
-
-第四优先级 - 水印信息（可选）：
-- 只提取博主昵称/艺名（如：Sexy Yuki、UUbabydoll等）
-- 过滤掉：网址、域名、@群组名、频道链接、广告内容
-- 过滤规则：包含 .com .cc .net .org @ http www 等的内容一律忽略
-
 【关键词格式要求】
+- 如果有水印博主名字，必须放在第一个
 - 必须包含至少2个穿着类关键词
 - 必须包含至少1个姿势类关键词
 - 总共4-8个关键词
@@ -475,7 +473,7 @@ class VisionProcessor:
 
 请严格按以下格式返回：
 描述：[综合描述，重点描述穿着、姿势、行为]
-关键词：[穿着1, 穿着2, 姿势1, 行为1, ...]"""
+关键词：[博主名, 穿着1, 穿着2, 姿势1, ...]"""
 
     def process_image(self, image_path: str, title: str) -> Dict:
         """处理图片"""
@@ -623,23 +621,25 @@ class VisionProcessor:
 
 关键词必须聚焦以下维度（按优先级排序）：
 
-第一优先级 - 人物穿着（必须包含）：
+第一优先级 - 水印博主名字（最优先，必须包含）：
+- 博主昵称/艺名（如：Sexy Yuki、UUbabydoll、ciyuanbb等）
+- 只提取人物名称，不提取频道名、群组名
+- 过滤掉：网址、域名、@群组名、频道链接、广告内容
+- 过滤规则：包含 .com .cc .net .org @ http www 等的内容一律忽略
+
+第二优先级 - 人物穿着（必须包含）：
 - 服装类型：女仆装、校服、JK制服、旗袍、护士装、泳衣、内衣等
 - 服饰细节：丝袜、过膝袜、高跟鞋、蕾丝、蝴蝶结等
 - 颜色描述：黑色丝袜、白色衬衫、红色裙子等
 - 发型特征：双马尾、长发、短发、马尾辫、丸子头等
 
-第二优先级 - 姿势动作（必须包含）：
+第三优先级 - 姿势动作（必须包含）：
 - 基本姿势：站立、坐姿、跪姿、蹲姿、躺卧、弯腰
 - 动作描述：自拍、跳舞、行走、摆拍、转身等
 - 姿态特征：弓背、张腿、侧卧等
 
-第三优先级 - 水印信息（可选）：
-- 只提取博主昵称/艺名（如：Sexy Yuki、UUbabydoll等）
-- 过滤掉：网址、域名、@群组名、频道链接、广告内容
-- 过滤规则：包含 .com .cc .net .org @ http www 等的内容一律忽略
-
 【关键词格式要求】
+- 如果有水印博主名字，必须放在第一个
 - 必须包含至少2个穿着类关键词
 - 必须包含至少1个姿势类关键词
 - 总共4-8个关键词
@@ -676,3 +676,132 @@ class VisionProcessor:
         if kw_match:
             result["keywords"] = kw_match.group(1).strip()
         return result
+
+    def generate_final_name(self, keywords: str, original_title: str) -> str:
+        """
+        从vision_keywords生成final_name
+        水印博主名字最优先
+        
+        Args:
+            keywords: 逗号分隔的关键词
+            original_title: 原始文件名
+        
+        Returns:
+            格式：[关键词1_关键词2_...]_原文件名
+        """
+        if not keywords:
+            return original_title
+
+        kw_list = [k.strip() for k in keywords.split(",") if k.strip()]
+        kw_list = kw_list[:8]  # 最多8个关键词
+
+        if not kw_list:
+            return original_title
+
+        prefix = "_".join(kw_list)
+        return f"[{prefix}]_{original_title}"
+
+    def generate_srt(
+        self,
+        video_path: str,
+        description: str,
+        keywords: str,
+        video_summary: Dict = None,
+        output_dir: str = "data/output/subtitles",
+    ) -> str:
+        """
+        生成带元数据的SRT文件
+        
+        Args:
+            video_path: 视频路径
+            description: VLM描述
+            keywords: VLM关键词
+            video_summary: 视频摘要（姿态分析等）
+            output_dir: 输出目录
+        
+        Returns:
+            SRT文件路径
+        """
+        from pathlib import Path
+
+        srt_dir = Path(output_dir)
+        srt_dir.mkdir(parents=True, exist_ok=True)
+
+        video_name = Path(video_path).stem
+        srt_path = srt_dir / f"{video_name}.srt"
+
+        # 构建姿态摘要
+        pose_summary = ""
+        if video_summary and video_summary.get("has_person"):
+            main_pose = video_summary.get("main_pose", "未知")
+            pose_changes = len(video_summary.get("pose_changes", []))
+            person_ratio = video_summary.get("person_ratio", 0) * 100
+            pose_summary = f"主要姿态：{main_pose}，姿态变化{pose_changes}次，人体出现{person_ratio:.0f}%"
+
+        # 写入SRT文件
+        with open(srt_path, "w", encoding="utf-8") as f:
+            # 元数据帧
+            f.write("0\n")
+            f.write("00:00:00,000 --> 00:00:01,000\n")
+            f.write(f"【视频描述】{description}\n")
+            f.write(f"【关键词】{keywords}\n")
+            if pose_summary:
+                f.write(f"【姿态分析】{pose_summary}\n")
+            f.write("\n")
+
+        logger.info(f"SRT文件已生成: {srt_path}")
+        return str(srt_path)
+
+    def process_and_save(
+        self,
+        video_path: str,
+        title: str,
+        original_title: str = None,
+        srt_output_dir: str = "data/output/subtitles",
+    ) -> Dict:
+        """
+        处理视频并生成所有结果
+        
+        Args:
+            video_path: 视频路径
+            title: 标题
+            original_title: 原始文件名（用于生成final_name）
+            srt_output_dir: SRT输出目录
+        
+        Returns:
+            {
+                "description": str,
+                "keywords": str,
+                "final_name": str,
+                "srt_path": str,
+                "video_summary": Dict,
+            }
+        """
+        if original_title is None:
+            original_title = Path(video_path).name
+
+        # 处理视频
+        result = self.process_video(video_path, title)
+
+        if "error" in result:
+            return result
+
+        description = result.get("description", "")
+        keywords = result.get("keywords", "")
+        video_summary = result.get("video_summary", {})
+
+        # 生成final_name
+        final_name = self.generate_final_name(keywords, original_title)
+
+        # 生成SRT
+        srt_path = self.generate_srt(
+            video_path, description, keywords, video_summary, srt_output_dir
+        )
+
+        return {
+            "description": description,
+            "keywords": keywords,
+            "final_name": final_name,
+            "srt_path": srt_path,
+            "video_summary": video_summary,
+        }

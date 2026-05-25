@@ -1,7 +1,9 @@
 """CLI入口点"""
 
 import argparse
+import csv
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -16,6 +18,20 @@ def setup_logging(verbose: bool = False):
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+
+def load_env(env_path: Path):
+    """加载.env文件"""
+    if not env_path.exists():
+        return
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, _, val = line.partition("=")
+                os.environ.setdefault(key.strip(), val.strip())
 
 
 def cmd_scan(args):
@@ -41,6 +57,17 @@ def cmd_refine(args):
 
 def cmd_vision(args):
     """视觉识别命令"""
+    import time
+
+    csv_path = Path(args.csv)
+    if not csv_path.exists():
+        print(f"[错误] CSV文件不存在: {csv_path}")
+        return
+
+    # 加载环境变量
+    load_env(Path.cwd() / ".env")
+
+    # 初始化处理器
     processor = VisionProcessor(
         provider=args.provider,
         use_yolo=args.use_yolo,
@@ -57,8 +84,111 @@ def cmd_vision(args):
         print("[错误] 初始化失败")
         return
 
-    # TODO: 实现CSV读取和批量处理
-    print("[待实现] 视觉识别")
+    # 读取CSV
+    with open(csv_path, "r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fieldnames = list(reader.fieldnames)
+        rows = list(reader)
+
+    if not rows:
+        print("[警告] CSV为空")
+        return
+
+    # 确保字段存在
+    for col in ["vision_description", "vision_keywords", "final_name", "srt_path"]:
+        if col not in fieldnames:
+            fieldnames.append(col)
+
+    # 筛选需要视觉识别的记录
+    pending = [
+        (i, row)
+        for i, row in enumerate(rows)
+        if row.get("needs_vision", "").strip().lower() == "true"
+        and not row.get("vision_keywords", "").strip()
+    ]
+
+    if args.all:
+        pending = [
+            (i, row)
+            for i, row in enumerate(rows)
+            if row.get("original_path", "").strip()
+            and not row.get("vision_keywords", "").strip()
+        ]
+
+    print(f"共 {len(rows)} 条记录，待处理 {len(pending)} 条")
+
+    if not pending:
+        print("[完成] 无需处理")
+        return
+
+    # SRT输出目录
+    srt_dir = str(csv_path.parent / "subtitles")
+
+    # 批量处理
+    total = len(pending)
+    success = 0
+    failed = 0
+
+    for idx, (row_idx, row) in enumerate(pending):
+        original_path = row.get("original_path", "").strip()
+        original_title = row.get("original_title", "").strip()
+
+        if not original_path or not Path(original_path).exists():
+            print(f"[{idx+1}/{total}] 跳过（文件不存在）: {original_title[:40]}")
+            failed += 1
+            continue
+
+        print(f"[{idx+1}/{total}] 处理: {original_title[:40]}")
+
+        start_time = time.time()
+
+        try:
+            # 使用process_and_save一次性处理
+            result = processor.process_and_save(
+                video_path=original_path,
+                title=original_title,
+                original_title=original_title,
+                srt_output_dir=srt_dir,
+            )
+
+            if "error" in result:
+                print(f"  [错误] {result['error']}")
+                failed += 1
+                continue
+
+            # 更新CSV行
+            rows[row_idx]["vision_description"] = result.get("description", "")
+            rows[row_idx]["vision_keywords"] = result.get("keywords", "")
+            rows[row_idx]["final_name"] = result.get("final_name", original_title)
+            rows[row_idx]["srt_path"] = result.get("srt_path", "")
+
+            # 更新姿态信息
+            video_summary = result.get("video_summary", {})
+            if video_summary:
+                rows[row_idx]["human_detected"] = "true" if video_summary.get("has_person") else "false"
+                rows[row_idx]["detection_method"] = "yolo" if args.use_yolo else "uhd"
+
+            elapsed = time.time() - start_time
+            print(f"  [完成] {elapsed:.1f}秒")
+            print(f"  关键词: {result.get('keywords', '')[:60]}")
+            print(f"  final_name: {result.get('final_name', '')[:60]}")
+
+            success += 1
+
+        except Exception as e:
+            print(f"  [错误] {e}")
+            failed += 1
+
+        # 每处理完一条立即保存CSV
+        with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    print(f"\n[统计]")
+    print(f"  成功: {success}")
+    print(f"  失败: {failed}")
+    print(f"  结果已保存至: {csv_path}")
 
 
 def cmd_rename(args):
@@ -126,6 +256,7 @@ def main():
     vision_cmd.add_argument("--max-image-size", type=int, default=800, help="图片最大尺寸")
     vision_cmd.add_argument("--vlm-frames", type=int, default=10, help="VLM帧数（全面分析模式默认10帧）")
     vision_cmd.add_argument("--analysis-step", type=float, default=2.0, help="视频分析采样间隔（秒，默认2秒）")
+    vision_cmd.add_argument("--all", action="store_true", help="处理所有未识别的文件")
     vision_cmd.set_defaults(func=cmd_vision)
 
     # rename 命令

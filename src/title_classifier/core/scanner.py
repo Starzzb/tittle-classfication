@@ -209,7 +209,7 @@ class Scanner:
             "proposed_title": proposed_title,
             "keywords": ", ".join(keywords),
             "needs_vision": str(needs_vision).lower(),
-            "final_name": "",
+            "final_name": proposed_title,  # 阶段1直接填入建议标题
             "review_status": "待确认",
             "vision_description": "",
             "vision_keywords": "",
