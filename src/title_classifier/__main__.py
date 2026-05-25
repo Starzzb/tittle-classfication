@@ -50,6 +50,7 @@ def cmd_vision(args):
         clip_threshold=args.clip_threshold,
         max_image_size=args.max_image_size,
         vlm_frames=args.vlm_frames,
+        analysis_step=args.analysis_step,
     )
 
     if not processor.initialize():
@@ -123,7 +124,8 @@ def main():
     vision_cmd.add_argument("--use-clip", action="store_true", help="使用CLIP预分类")
     vision_cmd.add_argument("--clip-threshold", type=float, default=0.25, help="CLIP置信度阈值")
     vision_cmd.add_argument("--max-image-size", type=int, default=800, help="图片最大尺寸")
-    vision_cmd.add_argument("--vlm-frames", type=int, default=5, help="VLM帧数")
+    vision_cmd.add_argument("--vlm-frames", type=int, default=10, help="VLM帧数（全面分析模式默认10帧）")
+    vision_cmd.add_argument("--analysis-step", type=float, default=2.0, help="视频分析采样间隔（秒，默认2秒）")
     vision_cmd.set_defaults(func=cmd_vision)
 
     # rename 命令

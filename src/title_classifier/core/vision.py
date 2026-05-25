@@ -1,12 +1,13 @@
-"""视觉识别模块"""
+"""视觉识别模块 - 视频全面分析版"""
 
 import csv
 import json
 import os
 import re
 import logging
+import tempfile
 from pathlib import Path
-from typing import Union, List, Dict, Optional
+from typing import Union, List, Dict, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class VisionProcessor:
-    """视觉处理器"""
+    """视觉处理器 - 支持视频全面分析"""
 
     def __init__(
         self,
@@ -32,7 +33,8 @@ class VisionProcessor:
         use_clip: bool = False,
         clip_threshold: float = 0.25,
         max_image_size: int = 800,
-        vlm_frames: int = 5,
+        vlm_frames: int = 10,
+        analysis_step: float = 2.0,
     ):
         self.provider = provider
         self.use_yolo = use_yolo
@@ -42,6 +44,7 @@ class VisionProcessor:
         self.clip_threshold = clip_threshold
         self.max_image_size = max_image_size
         self.vlm_frames = vlm_frames
+        self.analysis_step = analysis_step
 
         self.provider_config = get_provider_config(provider)
         self.model = self.provider_config.get("default_model", "") if self.provider_config else ""
@@ -54,10 +57,8 @@ class VisionProcessor:
 
     def initialize(self) -> bool:
         """初始化检测器"""
-        # 初始化标签统计
         self.tag_stats = TagStatistics()
 
-        # 初始化检测器
         if self.use_yolo:
             self.yolo_detector = YOLODetector(
                 model_type=self.yolo_model,
@@ -72,7 +73,6 @@ class VisionProcessor:
                 logger.error("UHD模型加载失败")
                 return False
 
-        # 初始化CLIP
         if self.use_clip:
             self.clip_classifier = CLIPClassifier(tag_stats=self.tag_stats)
             if not self.clip_classifier.load_model():
@@ -83,29 +83,76 @@ class VisionProcessor:
         return True
 
     def process_video(self, video_path: str, title: str) -> Dict:
-        """处理视频"""
+        """处理视频 - 全面分析模式"""
         duration = get_video_duration(video_path)
         logger.info(f"视频模式: {title[:30]} (时长: {duration:.1f}s)")
 
-        # 提取帧
+        if self.use_yolo and self.yolo_detector:
+            # YOLO全面分析模式
+            return self._process_video_comprehensive(video_path, title, duration)
+        else:
+            # 传统模式
+            return self._process_video_traditional(video_path, title, duration)
+
+    def _process_video_comprehensive(self, video_path: str, title: str, duration: float) -> Dict:
+        """视频全面分析"""
+        logger.info(f"启动YOLO全面分析模式，采样间隔: {self.analysis_step}秒")
+
+        # 1. 全面扫描视频
+        video_analysis = self._analyze_video_comprehensive(video_path, duration)
+
+        # 2. 智能选择代表性帧
+        selected_indices = self._select_representative_frames(video_analysis["timeline"])
+        selected_frames = video_analysis["frames"]
+
+        # 3. 生成视频摘要
+        video_summary = self._generate_video_summary(video_analysis["timeline"], duration)
+
+        # 4. 为每帧生成描述
+        frame_descriptions = self._generate_frame_descriptions(
+            video_analysis["timeline"], selected_indices
+        )
+
+        # 5. 构建全面上下文
+        comprehensive_context = self._build_comprehensive_context(
+            video_summary, frame_descriptions, len(selected_indices)
+        )
+
+        # 6. 调用VLM
+        result = self._call_vlm_comprehensive(
+            [selected_frames[i] for i in selected_indices if i < len(selected_frames)],
+            title,
+            comprehensive_context
+        )
+
+        # 7. 保存分析结果
+        analysis_result = {
+            "description": result.get("description", ""),
+            "keywords": result.get("keywords", ""),
+            "video_summary": video_summary,
+            "selected_frames": len(selected_indices),
+            "total_analyzed": len(video_analysis["timeline"]),
+            "pose_changes": len(video_summary.get("pose_changes", [])),
+            "person_ratio": video_summary.get("person_ratio", 0),
+        }
+
+        return analysis_result
+
+    def _process_video_traditional(self, video_path: str, title: str, duration: float) -> Dict:
+        """传统处理模式"""
         frames = self._extract_frames(video_path)
         if not frames:
             return {"error": "无法提取帧"}
 
-        # YOLO姿态分析
         yolo_results = []
         if self.use_yolo and self.yolo_detector:
             yolo_results = self._analyze_poses(frames)
 
-        # 智能帧选择
         selected_frames = self._select_frames(frames, yolo_results)
-
-        # 构建YOLO上下文
         yolo_context = None
         if yolo_results:
             yolo_context = self._build_yolo_context(yolo_results, selected_frames)
 
-        # 调用VLM
         result = self._call_vlm(selected_frames, title, yolo_context)
 
         return {
@@ -115,16 +162,304 @@ class VisionProcessor:
             "selected_frames": selected_frames,
         }
 
+    def _analyze_video_comprehensive(self, video_path: str, duration: float) -> Dict:
+        """全面分析视频 - 高密度采样"""
+        tmp_dir = Path(tempfile.mkdtemp())
+        frames = []
+        timeline = []
+
+        # 计算采样时间点
+        timestamps = np.arange(0, duration, self.analysis_step)
+        if len(timestamps) > 50:  # 限制最大采样数
+            timestamps = np.linspace(0, duration, 50)
+
+        logger.info(f"全面分析: {len(timestamps)}个采样点")
+
+        for i, ts in enumerate(timestamps):
+            # 提取帧
+            frame_path = str(tmp_dir / f"frame_{i:04d}_{ts:.1f}s.jpg")
+            if not extract_frame(video_path, frame_path, timestamp=str(ts), max_size=400):
+                continue
+
+            frames.append(frame_path)
+
+            # YOLO分析
+            data = np.fromfile(frame_path, dtype=np.uint8)
+            frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
+
+            if frame is not None and self.yolo_detector:
+                pose_result = self.yolo_detector.estimate_pose(frame)
+
+                timeline_entry = {
+                    "index": i,
+                    "timestamp": ts,
+                    "frame_path": frame_path,
+                    "has_person": pose_result.get("has_person", False),
+                    "confidence": pose_result.get("max_confidence", 0),
+                }
+
+                if pose_result.get("has_person") and pose_result.get("poses"):
+                    best_pose = pose_result["poses"][0]
+                    timeline_entry["pose_analysis"] = best_pose.get("pose_analysis", [])
+                    timeline_entry["visible_keypoints"] = best_pose.get("visible_count", 0)
+                    timeline_entry["keypoints"] = best_pose.get("keypoints", {})
+                else:
+                    timeline_entry["pose_analysis"] = []
+                    timeline_entry["visible_keypoints"] = 0
+                    timeline_entry["keypoints"] = {}
+
+                timeline.append(timeline_entry)
+
+            if (i + 1) % 10 == 0:
+                logger.info(f"已分析 {i + 1}/{len(timestamps)} 帧")
+
+        logger.info(f"全面分析完成: {len(timeline)}帧")
+
+        return {
+            "frames": frames,
+            "timeline": timeline,
+            "duration": duration,
+        }
+
+    def _generate_video_summary(self, timeline: List[Dict], duration: float) -> Dict:
+        """生成视频摘要"""
+        frames_with_person = [t for t in timeline if t.get("has_person")]
+
+        if not frames_with_person:
+            return {
+                "has_person": False,
+                "duration": duration,
+                "person_ratio": 0,
+            }
+
+        # 姿态变化时间线
+        pose_changes = []
+        prev_pose = None
+        for t in frames_with_person:
+            current_pose = tuple(t.get("pose_analysis", []))
+            if prev_pose and current_pose != prev_pose:
+                pose_changes.append({
+                    "timestamp": t["timestamp"],
+                    "from": list(prev_pose),
+                    "to": list(current_pose),
+                })
+            prev_pose = current_pose
+
+        # 人体出现时间段
+        person_appearances = []
+        start = None
+        for i, t in enumerate(timeline):
+            if t.get("has_person") and start is None:
+                start = t["timestamp"]
+            elif not t.get("has_person") and start is not None:
+                person_appearances.append({
+                    "start": start,
+                    "end": timeline[i - 1]["timestamp"],
+                })
+                start = None
+        if start is not None:
+            person_appearances.append({"start": start, "end": timeline[-1]["timestamp"]})
+
+        # 主要姿态统计
+        pose_counts = {}
+        for t in frames_with_person:
+            poses = t.get("pose_analysis", [])
+            for pose in poses:
+                pose_counts[pose] = pose_counts.get(pose, 0) + 1
+
+        main_pose = max(pose_counts, key=pose_counts.get) if pose_counts else "未知"
+
+        # 平均置信度和关键点
+        avg_confidence = sum(t.get("confidence", 0) for t in frames_with_person) / len(frames_with_person)
+        avg_keypoints = sum(t.get("visible_keypoints", 0) for t in frames_with_person) / len(frames_with_person)
+
+        return {
+            "has_person": True,
+            "duration": duration,
+            "person_ratio": len(frames_with_person) / len(timeline),
+            "person_appearances": person_appearances,
+            "pose_changes": pose_changes,
+            "main_pose": main_pose,
+            "pose_distribution": pose_counts,
+            "avg_confidence": avg_confidence,
+            "avg_keypoints": avg_keypoints,
+            "first_appearance": frames_with_person[0]["timestamp"],
+            "last_appearance": frames_with_person[-1]["timestamp"],
+        }
+
+    def _select_representative_frames(self, timeline: List[Dict], max_frames: int = 10) -> List[int]:
+        """选择代表性帧"""
+        selected = []
+        frames_with_person = [(i, t) for i, t in enumerate(timeline) if t.get("has_person")]
+
+        if not frames_with_person:
+            # 没有人体，均匀选择
+            return list(range(0, len(timeline), max(1, len(timeline) // max_frames)))[:max_frames]
+
+        # 1. 选择人体首次出现的帧
+        first_person_idx = frames_with_person[0][0]
+        selected.append(first_person_idx)
+
+        # 2. 选择姿态变化的帧
+        prev_pose = None
+        for i, t in frames_with_person:
+            current_pose = tuple(t.get("pose_analysis", []))
+            if prev_pose and current_pose != prev_pose and i not in selected:
+                selected.append(i)
+            prev_pose = current_pose
+
+        # 3. 选择置信度最高的帧
+        best_idx = max(frames_with_person, key=lambda x: x[1].get("confidence", 0))[0]
+        if best_idx not in selected:
+            selected.append(best_idx)
+
+        # 4. 选择关键点最可见的帧
+        best_kpt_idx = max(frames_with_person, key=lambda x: x[1].get("visible_keypoints", 0))[0]
+        if best_kpt_idx not in selected:
+            selected.append(best_kpt_idx)
+
+        # 5. 补充均匀分布的帧
+        while len(selected) < max_frames and len(selected) < len(timeline):
+            remaining = [i for i in range(len(timeline)) if i not in selected]
+            if not remaining:
+                break
+
+            # 选择距离已选帧最远的帧
+            max_dist = 0
+            best_idx = remaining[0]
+            for i in remaining:
+                min_dist = min(abs(i - s) for s in selected)
+                if min_dist > max_dist:
+                    max_dist = min_dist
+                    best_idx = i
+            selected.append(best_idx)
+
+        selected.sort()
+        return selected[:max_frames]
+
+    def _generate_frame_descriptions(self, timeline: List[Dict], selected_indices: List[int]) -> List[str]:
+        """为选中帧生成描述"""
+        descriptions = []
+
+        for idx in selected_indices:
+            if idx >= len(timeline):
+                continue
+
+            t = timeline[idx]
+            ts = t.get("timestamp", 0)
+            has_person = t.get("has_person", False)
+
+            if has_person:
+                poses = t.get("pose_analysis", [])
+                conf = t.get("confidence", 0)
+                kpts = t.get("visible_keypoints", 0)
+                pose_str = ", ".join(poses) if poses else "未知姿态"
+                desc = f"帧@{ts:.1f}s: 检测到人体, 姿态={pose_str}, 置信度={conf:.2f}, 关键点={kpts}/17"
+            else:
+                desc = f"帧@{ts:.1f}s: 未检测到人体"
+
+            descriptions.append(desc)
+
+        return descriptions
+
+    def _build_comprehensive_context(
+        self, video_summary: Dict, frame_descriptions: List[str], n_frames: int
+    ) -> str:
+        """构建全面上下文"""
+        context_lines = []
+
+        if video_summary.get("has_person"):
+            context_lines.append("【视频全面分析结果】")
+            context_lines.append(f"- 视频时长: {video_summary.get('duration', 0):.1f}秒")
+            context_lines.append(f"- 人体出现比例: {video_summary.get('person_ratio', 0) * 100:.1f}%")
+            context_lines.append(f"- 主要姿态: {', '.join(video_summary.get('main_pose', ['未知']))}")
+
+            # 姿态分布
+            pose_dist = video_summary.get("pose_distribution", {})
+            if pose_dist:
+                pose_str = ", ".join([f"{k}({v}次)" for k, v in sorted(pose_dist.items(), key=lambda x: -x[1])])
+                context_lines.append(f"- 姿态分布: {pose_str}")
+
+            # 姿态变化
+            pose_changes = video_summary.get("pose_changes", [])
+            if pose_changes:
+                context_lines.append(f"- 姿态变化次数: {len(pose_changes)}")
+                for change in pose_changes[:5]:  # 最多显示5次变化
+                    from_pose = ", ".join(change["from"]) if change["from"] else "无"
+                    to_pose = ", ".join(change["to"]) if change["to"] else "无"
+                    context_lines.append(f"  * {change['timestamp']:.1f}s: {from_pose} -> {to_pose}")
+
+            # 人体出现时间段
+            appearances = video_summary.get("person_appearances", [])
+            if appearances:
+                context_lines.append(f"- 人体出现时间段:")
+                for app in appearances[:3]:  # 最多显示3个时间段
+                    context_lines.append(f"  * {app['start']:.1f}s - {app['end']:.1f}s")
+
+            # 统计信息
+            context_lines.append(f"- 平均置信度: {video_summary.get('avg_confidence', 0):.2f}")
+            context_lines.append(f"- 平均可见关键点: {video_summary.get('avg_keypoints', 0):.1f}/17")
+
+            context_lines.append("")
+            context_lines.append("【各帧详细分析】")
+            for desc in frame_descriptions:
+                context_lines.append(f"- {desc}")
+        else:
+            context_lines.append("【视频分析结果】")
+            context_lines.append("- 视频中未检测到人体")
+
+        return "\n".join(context_lines)
+
+    def _call_vlm_comprehensive(self, frames: List[str], title: str, context: str) -> Dict:
+        """调用VLM - 全面分析模式"""
+        prompt = self._build_comprehensive_prompt(title, len(frames), context)
+
+        if len(frames) > 1:
+            images_b64 = [image_to_base64(f, max_size=self.max_image_size) for f in frames]
+            result = call_vision_api(
+                self.provider, images_b64, prompt,
+                model=self.model, api_key=self.api_key,
+            )
+        else:
+            image_b64 = image_to_base64(frames[0], max_size=self.max_image_size)
+            result = call_vision_api(
+                self.provider, image_b64, prompt,
+                model=self.model, api_key=self.api_key,
+            )
+
+        return self._parse_vision_response(result)
+
+    def _build_comprehensive_prompt(self, title: str, n_frames: int, context: str) -> str:
+        """构建全面分析提示词"""
+        return f"""这是媒体文件 "{title}" 的{n_frames}个关键帧截图，用于文件管理归类。
+
+{context}
+
+请根据以上预分析结果和各帧截图，综合判断并描述这个视频的完整情况：
+
+1. 视频概述：这是一个什么样的视频？主要内容是什么？
+2. 人物描述：视频中的人物穿着、动作、姿态变化
+3. 场景描述：视频的场景环境、灯光、背景
+4. 关键信息：水印、文字、品牌等可见信息
+5. 视频特点：与其他视频的区别点
+
+【输出要求】
+- 综合所有帧的信息，不要只看单帧
+- 描述要客观、准确，不要推测
+- 如果有不确定的内容，说明"可能"或"疑似"
+
+请严格按以下格式返回：
+描述：[综合描述，包含上述5个方面]
+关键词：[4-8个关键词，用逗号分隔]"""
+
     def process_image(self, image_path: str, title: str) -> Dict:
         """处理图片"""
         logger.info(f"图片模式: {title[:30]}")
 
-        # 压缩图片
         compressed_path = str(Path(image_path).parent / f"{Path(image_path).stem}_compressed.jpg")
         if not compress_image(image_path, compressed_path, max_size=self.max_image_size):
             compressed_path = image_path
 
-        # CLIP分类
         if self.use_clip and self.clip_classifier:
             clip_result = self.clip_classifier.classify(compressed_path, threshold=self.clip_threshold)
             if clip_result["avg_confidence"] >= self.clip_threshold:
@@ -134,14 +469,12 @@ class VisionProcessor:
                     "source": "clip_only",
                 }
 
-        # 调用VLM
         image_b64 = image_to_base64(compressed_path, max_size=self.max_image_size)
         result = call_vision_api(
             self.provider, image_b64, title,
             model=self.model, api_key=self.api_key,
         )
 
-        # 清理临时文件
         if compressed_path != image_path and Path(compressed_path).exists():
             try:
                 Path(compressed_path).unlink()
@@ -152,16 +485,12 @@ class VisionProcessor:
 
     def _extract_frames(self, video_path: str) -> List[str]:
         """提取视频帧"""
-        import tempfile
-
         tmp_dir = Path(tempfile.mkdtemp())
         frames = []
 
-        # 关键帧检测
         keyframes = detect_keyframes(video_path, str(tmp_dir), max_frames=8, max_size=self.max_image_size)
         frames.extend(keyframes)
 
-        # 均匀采样补充
         if len(frames) < self.vlm_frames:
             extra = extract_multiple_frames(
                 video_path, str(tmp_dir),
@@ -192,7 +521,6 @@ class VisionProcessor:
         if not yolo_results:
             return frames[:self.vlm_frames]
 
-        # 计算每帧得分
         scored = []
         prev_pose = None
 
@@ -200,15 +528,12 @@ class VisionProcessor:
             score = 0.0
 
             if result.get("has_person"):
-                # 置信度得分
                 conf = result.get("max_confidence", 0)
                 score += conf * 40
 
-                # 关键点可见性得分
                 visible = result.get("poses", [{}])[0].get("visible_count", 0)
                 score += (visible / 17) * 30
 
-                # 姿态多样性得分
                 current_pose = tuple(result.get("poses", [{}])[0].get("pose_analysis", []))
                 if prev_pose and current_pose != prev_pose:
                     score += 30
@@ -216,7 +541,6 @@ class VisionProcessor:
 
             scored.append((i, score))
 
-        # 按得分排序
         scored.sort(key=lambda x: x[1], reverse=True)
         selected_indices = [i for i, _ in scored[:self.vlm_frames]]
         selected_indices.sort()
@@ -229,7 +553,6 @@ class VisionProcessor:
 
         frames_with_person = [r for r in yolo_results if r.get("has_person")]
         if frames_with_person:
-            # 统计姿态分布
             pose_counts = {}
             for r in frames_with_person:
                 poses = r.get("poses", [{}])[0].get("pose_analysis", ["未知"])
