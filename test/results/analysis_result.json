@@ -1,0 +1,1530 @@
+{
+  "video_info": {
+    "path": "D:\\python projects\\myscripts\\tittle-classfication\\test\\test_video.mp4",
+    "duration": 12.39,
+    "total_frames": 297,
+    "fps": 23.976,
+    "step_seconds": 0.5
+  },
+  "frames": [
+    {
+      "frame_idx": 0,
+      "timestamp": 0.0,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 227.6,
+          "y": 201.6,
+          "conf": 0.997
+        },
+        "left_eye": {
+          "x": 263.6,
+          "y": 162.9,
+          "conf": 0.99
+        },
+        "right_eye": {
+          "x": 191.4,
+          "y": 162.2,
+          "conf": 0.997
+        },
+        "left_ear": {
+          "x": 310.1,
+          "y": 165.8,
+          "conf": 0.75
+        },
+        "right_ear": {
+          "x": 146.1,
+          "y": 165.9,
+          "conf": 0.937
+        },
+        "left_shoulder": {
+          "x": 361.6,
+          "y": 331.6,
+          "conf": 0.898
+        },
+        "right_shoulder": {
+          "x": 89.9,
+          "y": 325.5,
+          "conf": 0.99
+        },
+        "right_elbow": {
+          "x": 24.1,
+          "y": 491.8,
+          "conf": 0.804
+        },
+        "right_wrist": {
+          "x": 69.3,
+          "y": 608.2,
+          "conf": 0.615
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.886,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 11,
+      "timestamp": 0.46,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 248.5,
+          "y": 189.6,
+          "conf": 0.992
+        },
+        "left_eye": {
+          "x": 289.1,
+          "y": 146.4,
+          "conf": 0.986
+        },
+        "right_eye": {
+          "x": 211.7,
+          "y": 144.4,
+          "conf": 0.983
+        },
+        "left_ear": {
+          "x": 344.2,
+          "y": 140.7,
+          "conf": 0.795
+        },
+        "right_ear": {
+          "x": 164.9,
+          "y": 138.0,
+          "conf": 0.645
+        },
+        "left_shoulder": {
+          "x": 396.3,
+          "y": 316.8,
+          "conf": 0.869
+        },
+        "right_shoulder": {
+          "x": 109.6,
+          "y": 300.4,
+          "conf": 0.976
+        },
+        "right_elbow": {
+          "x": 42.2,
+          "y": 502.3,
+          "conf": 0.567
+        }
+      },
+      "visible_count": 8,
+      "avg_confidence": 0.852,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 22,
+      "timestamp": 0.92,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 275.9,
+          "y": 160.2,
+          "conf": 0.984
+        },
+        "left_eye": {
+          "x": 317.1,
+          "y": 116.9,
+          "conf": 0.97
+        },
+        "right_eye": {
+          "x": 236.4,
+          "y": 118.5,
+          "conf": 0.972
+        },
+        "left_ear": {
+          "x": 377.2,
+          "y": 122.3,
+          "conf": 0.602
+        },
+        "right_ear": {
+          "x": 187.8,
+          "y": 126.2,
+          "conf": 0.594
+        },
+        "left_shoulder": {
+          "x": 404.0,
+          "y": 290.7,
+          "conf": 0.674
+        },
+        "right_shoulder": {
+          "x": 124.0,
+          "y": 292.8,
+          "conf": 0.972
+        },
+        "right_elbow": {
+          "x": 33.2,
+          "y": 524.4,
+          "conf": 0.622
+        },
+        "right_wrist": {
+          "x": 93.5,
+          "y": 382.5,
+          "conf": 0.57
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.773,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 33,
+      "timestamp": 1.38,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 277.2,
+          "y": 136.2,
+          "conf": 0.985
+        },
+        "left_eye": {
+          "x": 305.5,
+          "y": 98.1,
+          "conf": 0.937
+        },
+        "right_eye": {
+          "x": 236.8,
+          "y": 103.4,
+          "conf": 0.977
+        },
+        "right_ear": {
+          "x": 179.7,
+          "y": 112.5,
+          "conf": 0.771
+        },
+        "left_shoulder": {
+          "x": 372.4,
+          "y": 252.7,
+          "conf": 0.813
+        },
+        "right_shoulder": {
+          "x": 131.8,
+          "y": 256.3,
+          "conf": 0.983
+        },
+        "right_elbow": {
+          "x": 37.1,
+          "y": 436.7,
+          "conf": 0.847
+        },
+        "right_wrist": {
+          "x": 36.7,
+          "y": 603.2,
+          "conf": 0.607
+        },
+        "right_hip": {
+          "x": 177.4,
+          "y": 612.6,
+          "conf": 0.704
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.847,
+      "pose_analysis": [
+        "站立/正常姿态"
+      ]
+    },
+    {
+      "frame_idx": 44,
+      "timestamp": 1.84,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 253.6,
+          "y": 143.2,
+          "conf": 0.985
+        },
+        "left_eye": {
+          "x": 294.7,
+          "y": 99.2,
+          "conf": 0.957
+        },
+        "right_eye": {
+          "x": 213.4,
+          "y": 97.7,
+          "conf": 0.972
+        },
+        "left_ear": {
+          "x": 347.8,
+          "y": 102.4,
+          "conf": 0.575
+        },
+        "right_ear": {
+          "x": 162.5,
+          "y": 100.3,
+          "conf": 0.712
+        },
+        "left_shoulder": {
+          "x": 376.2,
+          "y": 285.2,
+          "conf": 0.864
+        },
+        "right_shoulder": {
+          "x": 103.5,
+          "y": 268.5,
+          "conf": 0.985
+        },
+        "right_elbow": {
+          "x": 34.0,
+          "y": 488.7,
+          "conf": 0.772
+        },
+        "right_wrist": {
+          "x": 76.5,
+          "y": 560.0,
+          "conf": 0.593
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.824,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 55,
+      "timestamp": 2.29,
+      "has_person": true,
+      "person_count": 2,
+      "keypoints": {
+        "nose": {
+          "x": 242.4,
+          "y": 136.9,
+          "conf": 0.993
+        },
+        "left_eye": {
+          "x": 278.2,
+          "y": 92.9,
+          "conf": 0.975
+        },
+        "right_eye": {
+          "x": 196.9,
+          "y": 93.4,
+          "conf": 0.991
+        },
+        "right_ear": {
+          "x": 133.9,
+          "y": 104.2,
+          "conf": 0.88
+        },
+        "left_shoulder": {
+          "x": 356.2,
+          "y": 268.2,
+          "conf": 0.878
+        },
+        "right_shoulder": {
+          "x": 81.8,
+          "y": 285.7,
+          "conf": 0.974
+        },
+        "right_elbow": {
+          "x": 12.4,
+          "y": 482.3,
+          "conf": 0.569
+        },
+        "right_wrist": {
+          "x": 56.3,
+          "y": 394.7,
+          "conf": 0.658
+        }
+      },
+      "visible_count": 8,
+      "avg_confidence": 0.865,
+      "pose_analysis": [
+        "站立/正常姿态"
+      ]
+    },
+    {
+      "frame_idx": 66,
+      "timestamp": 2.75,
+      "has_person": true,
+      "person_count": 2,
+      "keypoints": {
+        "nose": {
+          "x": 224.3,
+          "y": 170.7,
+          "conf": 0.993
+        },
+        "left_eye": {
+          "x": 253.7,
+          "y": 131.2,
+          "conf": 0.968
+        },
+        "right_eye": {
+          "x": 181.7,
+          "y": 134.5,
+          "conf": 0.989
+        },
+        "right_ear": {
+          "x": 123.8,
+          "y": 142.5,
+          "conf": 0.888
+        },
+        "left_shoulder": {
+          "x": 344.7,
+          "y": 282.4,
+          "conf": 0.939
+        },
+        "right_shoulder": {
+          "x": 65.3,
+          "y": 299.5,
+          "conf": 0.98
+        },
+        "right_elbow": {
+          "x": 7.3,
+          "y": 513.9,
+          "conf": 0.681
+        }
+      },
+      "visible_count": 7,
+      "avg_confidence": 0.92,
+      "pose_analysis": [
+        "站立/正常姿态"
+      ]
+    },
+    {
+      "frame_idx": 77,
+      "timestamp": 3.21,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 191.2,
+          "y": 167.7,
+          "conf": 0.995
+        },
+        "left_eye": {
+          "x": 226.3,
+          "y": 130.6,
+          "conf": 0.993
+        },
+        "right_eye": {
+          "x": 155.1,
+          "y": 126.7,
+          "conf": 0.988
+        },
+        "left_ear": {
+          "x": 271.3,
+          "y": 130.6,
+          "conf": 0.892
+        },
+        "right_ear": {
+          "x": 108.5,
+          "y": 125.2,
+          "conf": 0.791
+        },
+        "left_shoulder": {
+          "x": 338.6,
+          "y": 309.7,
+          "conf": 0.984
+        },
+        "right_shoulder": {
+          "x": 34.3,
+          "y": 290.8,
+          "conf": 0.951
+        },
+        "left_elbow": {
+          "x": 395.2,
+          "y": 511.6,
+          "conf": 0.527
+        }
+      },
+      "visible_count": 8,
+      "avg_confidence": 0.89,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 88,
+      "timestamp": 3.67,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 280.5,
+          "y": 105.4,
+          "conf": 0.971
+        },
+        "left_eye": {
+          "x": 318.9,
+          "y": 65.2,
+          "conf": 0.926
+        },
+        "right_eye": {
+          "x": 240.4,
+          "y": 65.1,
+          "conf": 0.97
+        },
+        "right_ear": {
+          "x": 182.9,
+          "y": 77.7,
+          "conf": 0.72
+        },
+        "left_shoulder": {
+          "x": 383.0,
+          "y": 248.4,
+          "conf": 0.585
+        },
+        "right_shoulder": {
+          "x": 117.2,
+          "y": 238.4,
+          "conf": 0.956
+        },
+        "right_elbow": {
+          "x": 32.3,
+          "y": 422.1,
+          "conf": 0.64
+        },
+        "right_wrist": {
+          "x": 46.5,
+          "y": 326.8,
+          "conf": 0.542
+        },
+        "right_hip": {
+          "x": 142.1,
+          "y": 580.4,
+          "conf": 0.603
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.768,
+      "pose_analysis": [
+        "站立/正常姿态"
+      ]
+    },
+    {
+      "frame_idx": 99,
+      "timestamp": 4.13,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 256.8,
+          "y": 101.0,
+          "conf": 0.976
+        },
+        "left_eye": {
+          "x": 296.1,
+          "y": 58.4,
+          "conf": 0.922
+        },
+        "right_eye": {
+          "x": 211.9,
+          "y": 57.5,
+          "conf": 0.974
+        },
+        "right_ear": {
+          "x": 147.6,
+          "y": 68.8,
+          "conf": 0.774
+        },
+        "left_shoulder": {
+          "x": 389.5,
+          "y": 243.8,
+          "conf": 0.662
+        },
+        "right_shoulder": {
+          "x": 75.6,
+          "y": 253.9,
+          "conf": 0.968
+        },
+        "right_elbow": {
+          "x": 9.4,
+          "y": 511.2,
+          "conf": 0.635
+        }
+      },
+      "visible_count": 7,
+      "avg_confidence": 0.845,
+      "pose_analysis": [
+        "站立/正常姿态"
+      ]
+    },
+    {
+      "frame_idx": 110,
+      "timestamp": 4.59,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 209.0,
+          "y": 138.5,
+          "conf": 0.995
+        },
+        "left_eye": {
+          "x": 246.0,
+          "y": 96.8,
+          "conf": 0.98
+        },
+        "right_eye": {
+          "x": 167.9,
+          "y": 100.6,
+          "conf": 0.992
+        },
+        "left_ear": {
+          "x": 297.2,
+          "y": 94.8,
+          "conf": 0.644
+        },
+        "right_ear": {
+          "x": 119.3,
+          "y": 105.5,
+          "conf": 0.87
+        },
+        "left_shoulder": {
+          "x": 336.0,
+          "y": 248.0,
+          "conf": 0.962
+        },
+        "right_shoulder": {
+          "x": 65.4,
+          "y": 263.0,
+          "conf": 0.98
+        },
+        "right_elbow": {
+          "x": 8.8,
+          "y": 492.4,
+          "conf": 0.634
+        }
+      },
+      "visible_count": 8,
+      "avg_confidence": 0.882,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 121,
+      "timestamp": 5.05,
+      "has_person": true,
+      "person_count": 2,
+      "keypoints": {
+        "nose": {
+          "x": 240.4,
+          "y": 166.6,
+          "conf": 0.997
+        },
+        "left_eye": {
+          "x": 276.5,
+          "y": 117.7,
+          "conf": 0.991
+        },
+        "right_eye": {
+          "x": 194.4,
+          "y": 122.9,
+          "conf": 0.996
+        },
+        "left_ear": {
+          "x": 323.5,
+          "y": 105.2,
+          "conf": 0.603
+        },
+        "right_ear": {
+          "x": 136.2,
+          "y": 118.5,
+          "conf": 0.908
+        },
+        "left_shoulder": {
+          "x": 365.4,
+          "y": 247.3,
+          "conf": 0.832
+        },
+        "right_shoulder": {
+          "x": 92.3,
+          "y": 281.1,
+          "conf": 0.985
+        },
+        "right_elbow": {
+          "x": 10.6,
+          "y": 445.8,
+          "conf": 0.744
+        },
+        "right_wrist": {
+          "x": 53.4,
+          "y": 316.0,
+          "conf": 0.81
+        },
+        "right_hip": {
+          "x": 157.8,
+          "y": 603.9,
+          "conf": 0.528
+        }
+      },
+      "visible_count": 10,
+      "avg_confidence": 0.839,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 132,
+      "timestamp": 5.51,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 234.5,
+          "y": 165.5,
+          "conf": 0.991
+        },
+        "left_eye": {
+          "x": 272.9,
+          "y": 124.1,
+          "conf": 0.987
+        },
+        "right_eye": {
+          "x": 197.7,
+          "y": 125.6,
+          "conf": 0.976
+        },
+        "left_ear": {
+          "x": 329.7,
+          "y": 114.2,
+          "conf": 0.849
+        },
+        "right_ear": {
+          "x": 153.8,
+          "y": 119.2,
+          "conf": 0.591
+        },
+        "left_shoulder": {
+          "x": 390.1,
+          "y": 269.2,
+          "conf": 0.919
+        },
+        "right_shoulder": {
+          "x": 88.1,
+          "y": 266.6,
+          "conf": 0.982
+        },
+        "right_elbow": {
+          "x": 2.9,
+          "y": 468.6,
+          "conf": 0.644
+        },
+        "right_wrist": {
+          "x": 41.5,
+          "y": 322.6,
+          "conf": 0.562
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.833,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 143,
+      "timestamp": 5.96,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 282.1,
+          "y": 148.6,
+          "conf": 0.973
+        },
+        "left_eye": {
+          "x": 323.0,
+          "y": 107.4,
+          "conf": 0.952
+        },
+        "right_eye": {
+          "x": 244.4,
+          "y": 104.0,
+          "conf": 0.954
+        },
+        "right_ear": {
+          "x": 190.3,
+          "y": 102.7,
+          "conf": 0.51
+        },
+        "left_shoulder": {
+          "x": 401.3,
+          "y": 275.0,
+          "conf": 0.573
+        },
+        "right_shoulder": {
+          "x": 120.3,
+          "y": 271.3,
+          "conf": 0.939
+        },
+        "right_wrist": {
+          "x": 69.9,
+          "y": 323.2,
+          "conf": 0.573
+        }
+      },
+      "visible_count": 7,
+      "avg_confidence": 0.782,
+      "pose_analysis": [
+        "站立/正常姿态"
+      ]
+    },
+    {
+      "frame_idx": 154,
+      "timestamp": 6.42,
+      "has_person": true,
+      "person_count": 2,
+      "keypoints": {
+        "nose": {
+          "x": 226.9,
+          "y": 145.1,
+          "conf": 0.992
+        },
+        "left_eye": {
+          "x": 267.5,
+          "y": 104.0,
+          "conf": 0.982
+        },
+        "right_eye": {
+          "x": 188.6,
+          "y": 103.4,
+          "conf": 0.986
+        },
+        "left_ear": {
+          "x": 325.9,
+          "y": 105.7,
+          "conf": 0.747
+        },
+        "right_ear": {
+          "x": 145.0,
+          "y": 106.0,
+          "conf": 0.786
+        },
+        "left_shoulder": {
+          "x": 363.0,
+          "y": 290.4,
+          "conf": 0.901
+        },
+        "right_shoulder": {
+          "x": 79.7,
+          "y": 265.4,
+          "conf": 0.981
+        },
+        "right_elbow": {
+          "x": 13.0,
+          "y": 510.7,
+          "conf": 0.53
+        }
+      },
+      "visible_count": 8,
+      "avg_confidence": 0.863,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 165,
+      "timestamp": 6.88,
+      "has_person": true,
+      "person_count": 2,
+      "keypoints": {
+        "nose": {
+          "x": 236.9,
+          "y": 154.3,
+          "conf": 0.991
+        },
+        "left_eye": {
+          "x": 276.9,
+          "y": 106.7,
+          "conf": 0.987
+        },
+        "right_eye": {
+          "x": 194.9,
+          "y": 108.3,
+          "conf": 0.971
+        },
+        "left_ear": {
+          "x": 337.8,
+          "y": 96.4,
+          "conf": 0.839
+        },
+        "left_shoulder": {
+          "x": 395.4,
+          "y": 282.8,
+          "conf": 0.921
+        },
+        "right_shoulder": {
+          "x": 90.8,
+          "y": 264.0,
+          "conf": 0.97
+        },
+        "right_elbow": {
+          "x": 15.8,
+          "y": 464.5,
+          "conf": 0.524
+        }
+      },
+      "visible_count": 7,
+      "avg_confidence": 0.886,
+      "pose_analysis": [
+        "站立/正常姿态"
+      ]
+    },
+    {
+      "frame_idx": 176,
+      "timestamp": 7.34,
+      "has_person": true,
+      "person_count": 2,
+      "keypoints": {
+        "nose": {
+          "x": 235.9,
+          "y": 157.8,
+          "conf": 0.997
+        },
+        "left_eye": {
+          "x": 273.4,
+          "y": 112.8,
+          "conf": 0.995
+        },
+        "right_eye": {
+          "x": 192.6,
+          "y": 115.5,
+          "conf": 0.991
+        },
+        "left_ear": {
+          "x": 327.9,
+          "y": 104.4,
+          "conf": 0.873
+        },
+        "right_ear": {
+          "x": 142.2,
+          "y": 113.2,
+          "conf": 0.734
+        },
+        "left_shoulder": {
+          "x": 384.2,
+          "y": 270.2,
+          "conf": 0.959
+        },
+        "right_shoulder": {
+          "x": 94.0,
+          "y": 266.2,
+          "conf": 0.991
+        },
+        "right_elbow": {
+          "x": 12.6,
+          "y": 484.3,
+          "conf": 0.787
+        },
+        "right_wrist": {
+          "x": 66.6,
+          "y": 317.4,
+          "conf": 0.797
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.903,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 187,
+      "timestamp": 7.8,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 232.0,
+          "y": 152.3,
+          "conf": 0.995
+        },
+        "left_eye": {
+          "x": 265.9,
+          "y": 104.9,
+          "conf": 0.986
+        },
+        "right_eye": {
+          "x": 188.0,
+          "y": 109.2,
+          "conf": 0.992
+        },
+        "left_ear": {
+          "x": 314.5,
+          "y": 103.1,
+          "conf": 0.659
+        },
+        "right_ear": {
+          "x": 137.5,
+          "y": 116.2,
+          "conf": 0.835
+        },
+        "left_shoulder": {
+          "x": 375.0,
+          "y": 294.8,
+          "conf": 0.85
+        },
+        "right_shoulder": {
+          "x": 93.4,
+          "y": 305.9,
+          "conf": 0.978
+        },
+        "right_elbow": {
+          "x": 27.4,
+          "y": 524.3,
+          "conf": 0.59
+        },
+        "right_wrist": {
+          "x": 87.1,
+          "y": 527.2,
+          "conf": 0.606
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.832,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 198,
+      "timestamp": 8.26,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 210.7,
+          "y": 167.1,
+          "conf": 0.989
+        },
+        "left_eye": {
+          "x": 237.1,
+          "y": 128.5,
+          "conf": 0.971
+        },
+        "right_eye": {
+          "x": 173.5,
+          "y": 133.4,
+          "conf": 0.981
+        },
+        "left_ear": {
+          "x": 276.3,
+          "y": 121.0,
+          "conf": 0.677
+        },
+        "right_ear": {
+          "x": 125.4,
+          "y": 135.3,
+          "conf": 0.818
+        },
+        "left_shoulder": {
+          "x": 353.6,
+          "y": 277.2,
+          "conf": 0.945
+        },
+        "right_shoulder": {
+          "x": 66.1,
+          "y": 287.3,
+          "conf": 0.981
+        },
+        "right_elbow": {
+          "x": 17.5,
+          "y": 458.4,
+          "conf": 0.702
+        },
+        "right_hip": {
+          "x": 134.2,
+          "y": 621.5,
+          "conf": 0.534
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.844,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 209,
+      "timestamp": 8.72,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 229.0,
+          "y": 191.8,
+          "conf": 0.995
+        },
+        "left_eye": {
+          "x": 263.8,
+          "y": 146.6,
+          "conf": 0.992
+        },
+        "right_eye": {
+          "x": 189.5,
+          "y": 149.7,
+          "conf": 0.987
+        },
+        "left_ear": {
+          "x": 317.4,
+          "y": 137.0,
+          "conf": 0.864
+        },
+        "right_ear": {
+          "x": 144.8,
+          "y": 148.1,
+          "conf": 0.625
+        },
+        "left_shoulder": {
+          "x": 383.7,
+          "y": 317.4,
+          "conf": 0.9
+        },
+        "right_shoulder": {
+          "x": 100.2,
+          "y": 309.5,
+          "conf": 0.966
+        },
+        "right_elbow": {
+          "x": 32.3,
+          "y": 491.4,
+          "conf": 0.558
+        }
+      },
+      "visible_count": 8,
+      "avg_confidence": 0.861,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 220,
+      "timestamp": 9.18,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 214.4,
+          "y": 188.7,
+          "conf": 0.997
+        },
+        "left_eye": {
+          "x": 248.8,
+          "y": 146.7,
+          "conf": 0.989
+        },
+        "right_eye": {
+          "x": 171.7,
+          "y": 152.2,
+          "conf": 0.996
+        },
+        "left_ear": {
+          "x": 298.6,
+          "y": 142.2,
+          "conf": 0.788
+        },
+        "right_ear": {
+          "x": 124.8,
+          "y": 156.9,
+          "conf": 0.936
+        },
+        "left_shoulder": {
+          "x": 372.6,
+          "y": 308.5,
+          "conf": 0.939
+        },
+        "right_shoulder": {
+          "x": 75.2,
+          "y": 305.3,
+          "conf": 0.991
+        },
+        "right_elbow": {
+          "x": 18.6,
+          "y": 510.7,
+          "conf": 0.721
+        }
+      },
+      "visible_count": 8,
+      "avg_confidence": 0.919,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 231,
+      "timestamp": 9.63,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 239.5,
+          "y": 150.4,
+          "conf": 0.996
+        },
+        "left_eye": {
+          "x": 269.5,
+          "y": 107.6,
+          "conf": 0.987
+        },
+        "right_eye": {
+          "x": 193.6,
+          "y": 112.4,
+          "conf": 0.995
+        },
+        "left_ear": {
+          "x": 308.1,
+          "y": 112.8,
+          "conf": 0.592
+        },
+        "right_ear": {
+          "x": 130.3,
+          "y": 127.4,
+          "conf": 0.934
+        },
+        "left_shoulder": {
+          "x": 360.7,
+          "y": 295.8,
+          "conf": 0.96
+        },
+        "right_shoulder": {
+          "x": 71.4,
+          "y": 305.1,
+          "conf": 0.987
+        },
+        "right_elbow": {
+          "x": 6.0,
+          "y": 513.0,
+          "conf": 0.599
+        }
+      },
+      "visible_count": 8,
+      "avg_confidence": 0.881,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 242,
+      "timestamp": 10.09,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 238.1,
+          "y": 143.7,
+          "conf": 0.991
+        },
+        "left_eye": {
+          "x": 273.8,
+          "y": 101.1,
+          "conf": 0.979
+        },
+        "right_eye": {
+          "x": 196.6,
+          "y": 104.5,
+          "conf": 0.983
+        },
+        "left_ear": {
+          "x": 324.2,
+          "y": 97.8,
+          "conf": 0.714
+        },
+        "right_ear": {
+          "x": 146.1,
+          "y": 107.8,
+          "conf": 0.763
+        },
+        "left_shoulder": {
+          "x": 376.2,
+          "y": 251.4,
+          "conf": 0.93
+        },
+        "right_shoulder": {
+          "x": 98.4,
+          "y": 258.4,
+          "conf": 0.987
+        },
+        "right_elbow": {
+          "x": 22.7,
+          "y": 422.2,
+          "conf": 0.847
+        },
+        "right_wrist": {
+          "x": 42.3,
+          "y": 567.8,
+          "conf": 0.693
+        },
+        "left_hip": {
+          "x": 322.3,
+          "y": 595.3,
+          "conf": 0.725
+        },
+        "right_hip": {
+          "x": 150.8,
+          "y": 596.3,
+          "conf": 0.845
+        }
+      },
+      "visible_count": 11,
+      "avg_confidence": 0.86,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 253,
+      "timestamp": 10.55,
+      "has_person": true,
+      "person_count": 2,
+      "keypoints": {
+        "nose": {
+          "x": 219.2,
+          "y": 145.8,
+          "conf": 0.992
+        },
+        "left_eye": {
+          "x": 257.6,
+          "y": 103.9,
+          "conf": 0.985
+        },
+        "right_eye": {
+          "x": 183.9,
+          "y": 102.7,
+          "conf": 0.98
+        },
+        "left_ear": {
+          "x": 310.0,
+          "y": 96.3,
+          "conf": 0.83
+        },
+        "right_ear": {
+          "x": 138.8,
+          "y": 94.4,
+          "conf": 0.701
+        },
+        "left_shoulder": {
+          "x": 374.4,
+          "y": 266.4,
+          "conf": 0.952
+        },
+        "right_shoulder": {
+          "x": 66.0,
+          "y": 257.1,
+          "conf": 0.981
+        },
+        "right_elbow": {
+          "x": 20.8,
+          "y": 456.9,
+          "conf": 0.67
+        },
+        "right_wrist": {
+          "x": 79.7,
+          "y": 516.2,
+          "conf": 0.533
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.847,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 264,
+      "timestamp": 11.01,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 262.3,
+          "y": 137.0,
+          "conf": 0.986
+        },
+        "left_eye": {
+          "x": 301.5,
+          "y": 96.7,
+          "conf": 0.943
+        },
+        "right_eye": {
+          "x": 225.9,
+          "y": 94.0,
+          "conf": 0.987
+        },
+        "right_ear": {
+          "x": 177.9,
+          "y": 98.3,
+          "conf": 0.886
+        },
+        "left_shoulder": {
+          "x": 399.2,
+          "y": 275.9,
+          "conf": 0.722
+        },
+        "right_shoulder": {
+          "x": 102.1,
+          "y": 280.4,
+          "conf": 0.988
+        },
+        "right_elbow": {
+          "x": 37.6,
+          "y": 487.4,
+          "conf": 0.843
+        },
+        "right_wrist": {
+          "x": 75.0,
+          "y": 585.6,
+          "conf": 0.651
+        },
+        "right_hip": {
+          "x": 145.8,
+          "y": 634.9,
+          "conf": 0.54
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.838,
+      "pose_analysis": [
+        "站立/正常姿态"
+      ]
+    },
+    {
+      "frame_idx": 275,
+      "timestamp": 11.47,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 267.3,
+          "y": 183.3,
+          "conf": 0.994
+        },
+        "left_eye": {
+          "x": 307.3,
+          "y": 139.0,
+          "conf": 0.979
+        },
+        "right_eye": {
+          "x": 228.1,
+          "y": 138.2,
+          "conf": 0.995
+        },
+        "left_ear": {
+          "x": 356.7,
+          "y": 128.7,
+          "conf": 0.506
+        },
+        "right_ear": {
+          "x": 178.8,
+          "y": 126.9,
+          "conf": 0.912
+        },
+        "left_shoulder": {
+          "x": 394.4,
+          "y": 279.6,
+          "conf": 0.719
+        },
+        "right_shoulder": {
+          "x": 117.9,
+          "y": 285.2,
+          "conf": 0.986
+        },
+        "right_elbow": {
+          "x": 46.5,
+          "y": 492.2,
+          "conf": 0.786
+        },
+        "right_wrist": {
+          "x": 91.5,
+          "y": 562.8,
+          "conf": 0.603
+        }
+      },
+      "visible_count": 9,
+      "avg_confidence": 0.831,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    },
+    {
+      "frame_idx": 286,
+      "timestamp": 11.93,
+      "has_person": true,
+      "person_count": 1,
+      "keypoints": {
+        "nose": {
+          "x": 238.5,
+          "y": 207.0,
+          "conf": 0.996
+        },
+        "left_eye": {
+          "x": 268.0,
+          "y": 164.9,
+          "conf": 0.984
+        },
+        "right_eye": {
+          "x": 197.8,
+          "y": 169.8,
+          "conf": 0.996
+        },
+        "left_ear": {
+          "x": 308.7,
+          "y": 152.4,
+          "conf": 0.583
+        },
+        "right_ear": {
+          "x": 142.7,
+          "y": 165.3,
+          "conf": 0.922
+        },
+        "left_shoulder": {
+          "x": 367.5,
+          "y": 302.0,
+          "conf": 0.928
+        },
+        "right_shoulder": {
+          "x": 91.6,
+          "y": 301.1,
+          "conf": 0.989
+        },
+        "right_elbow": {
+          "x": 30.3,
+          "y": 481.9,
+          "conf": 0.844
+        },
+        "right_wrist": {
+          "x": 42.3,
+          "y": 542.6,
+          "conf": 0.677
+        },
+        "right_hip": {
+          "x": 130.6,
+          "y": 601.5,
+          "conf": 0.593
+        }
+      },
+      "visible_count": 10,
+      "avg_confidence": 0.851,
+      "pose_analysis": [
+        "右侧朝向"
+      ]
+    }
+  ],
+  "summary": {
+    "total_frames_analyzed": 27,
+    "frames_with_person": 27,
+    "person_presence_ratio": 100.0,
+    "person_detected": true,
+    "pose_statistics": {
+      "右侧朝向": 19,
+      "站立/正常姿态": 8
+    },
+    "dominant_pose": "右侧朝向",
+    "first_appearance": 0.0,
+    "last_appearance": 11.93
+  }
+}

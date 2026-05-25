@@ -220,7 +220,7 @@ class CLIPClassifier:
                             os.environ.pop(k, None)
                     continue
 
-            _log("所有加载方式均失败，请运行: python download_clip.py")
+            _log("所有加载方式均失败，请运行: python scripts/download_clip.py")
             return False
 
         except ImportError:

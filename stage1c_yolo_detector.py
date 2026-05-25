@@ -16,10 +16,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # YOLO 模型配置
+YOLO_MODEL_DIR = Path(__file__).parent / "models" / "yolo"
 YOLO_MODELS = {
-    "detect": "yolov8n.pt",      # 目标检测 (~6MB)
-    "pose": "yolov8n-pose.pt",   # 姿态估计 (~13MB)
-    "segment": "yolov8n-seg.pt", # 实例分割 (~12MB)
+    "detect": YOLO_MODEL_DIR / "yolov8n.pt",      # 目标检测 (~6MB)
+    "pose": YOLO_MODEL_DIR / "yolov8n-pose.pt",   # 姿态估计 (~13MB)
+    "segment": YOLO_MODEL_DIR / "yolov8n-seg.pt", # 实例分割 (~12MB)
 }
 
 # COCO 数据集人体类别 ID
@@ -96,11 +97,16 @@ class YOLODetector:
         try:
             from ultralytics import YOLO
             
-            model_name = YOLO_MODELS.get(self.model_type, YOLO_MODELS["detect"])
-            logger.info(f"[YOLO] 加载模型: {model_name} (设备: {self.device})")
+            model_path = YOLO_MODELS.get(self.model_type, YOLO_MODELS["detect"])
+            logger.info(f"[YOLO] 加载模型: {model_path} (设备: {self.device})")
             
-            # 加载模型（自动下载）
-            self.model = YOLO(model_name)
+            # 检查模型文件是否存在
+            if not model_path.exists():
+                logger.error(f"[YOLO] 模型文件不存在: {model_path}")
+                return False
+            
+            # 加载模型
+            self.model = YOLO(str(model_path))
             
             # 设置推理设备
             if self.device == "cuda":
