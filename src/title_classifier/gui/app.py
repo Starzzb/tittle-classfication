@@ -264,6 +264,28 @@ class TitleClassifierApp(tk.Tk):
         self.s1c_use_clip_var = tk.BooleanVar()
         ttk.Checkbutton(det_frame, text="使用CLIP", variable=self.s1c_use_clip_var).pack(side=tk.LEFT, padx=4)
 
+        # 分析参数
+        param_frame = ttk.LabelFrame(tab, text="分析参数")
+        param_frame.pack(fill=tk.X, padx=4, pady=4)
+
+        ttk.Label(param_frame, text="采样间隔(秒):").pack(side=tk.LEFT, padx=4)
+        self.s1c_analysis_step_var = tk.StringVar(value="2.0")
+        ttk.Entry(param_frame, textvariable=self.s1c_analysis_step_var, width=6).pack(side=tk.LEFT, padx=4)
+
+        ttk.Label(param_frame, text="VLM帧数:").pack(side=tk.LEFT, padx=4)
+        self.s1c_vlm_frames_var = tk.StringVar(value="10")
+        ttk.Entry(param_frame, textvariable=self.s1c_vlm_frames_var, width=6).pack(side=tk.LEFT, padx=4)
+
+        # 选项
+        opt_frame = ttk.LabelFrame(tab, text="选项")
+        opt_frame.pack(fill=tk.X, padx=4, pady=4)
+
+        self.s1c_all_var = tk.BooleanVar()
+        ttk.Checkbutton(opt_frame, text="处理所有未识别文件", variable=self.s1c_all_var).pack(side=tk.LEFT, padx=4)
+
+        self.s1c_audio_var = tk.BooleanVar()
+        ttk.Checkbutton(opt_frame, text="生成音频字幕", variable=self.s1c_audio_var).pack(side=tk.LEFT, padx=4)
+
         # 执行按钮
         btn_frame = ttk.Frame(tab)
         btn_frame.pack(fill=tk.X, padx=4, pady=8)
@@ -414,6 +436,21 @@ class TitleClassifierApp(tk.Tk):
 
         if self.s1c_use_clip_var.get():
             cmd.append("--use-clip")
+
+        # 添加分析参数
+        analysis_step = self.s1c_analysis_step_var.get()
+        if analysis_step:
+            cmd.extend(["--analysis-step", analysis_step])
+
+        vlm_frames = self.s1c_vlm_frames_var.get()
+        if vlm_frames:
+            cmd.extend(["--vlm-frames", vlm_frames])
+
+        if self.s1c_all_var.get():
+            cmd.append("--all")
+
+        if self.s1c_audio_var.get():
+            cmd.append("--audio")
 
         self._run_command(cmd)
 
