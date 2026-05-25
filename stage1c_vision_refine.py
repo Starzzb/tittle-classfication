@@ -26,7 +26,7 @@ except ImportError:
 # YOLO 检测模块
 try:
     from stage1c_yolo_detector import (YOLODetector, YOLOTracker, detect_human_yolo, 
-                                       find_human_frame_yolo, YOLO_MODELS)
+                                       find_human_frame_yolo, YOLO_MODELS, analyze_pose_for_vlm)
     HAS_YOLO = True
 except ImportError:
     HAS_YOLO = False
@@ -850,6 +850,8 @@ def main():
             fieldnames.append("detection_confidence")
         if "detection_timestamp" not in fieldnames:
             fieldnames.append("detection_timestamp")
+        if "detection_method" not in fieldnames:
+            fieldnames.append("detection_method")
         # CLIP 相关列
         for col in ["clip_clothing", "clip_action", "clip_hairstyle",
                      "clip_tags", "clip_tags_json", "clip_confidence", "vision_source"]:
