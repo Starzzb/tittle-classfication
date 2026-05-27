@@ -645,7 +645,7 @@ class TitleClassifierApp(tk.Tk):
             if self.s1c_yolo_segment_var.get():
                 models.append("segment")
             if models:
-                cmd.extend(["--yolo-model", ",".join(models)])
+                cmd.extend(["--yolo-model"] + models)
         # UHD不需要额外参数，默认使用
 
         if self.s1c_use_clip_var.get():

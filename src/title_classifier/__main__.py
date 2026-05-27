@@ -250,7 +250,7 @@ def main():
     vision_cmd.add_argument("-c", "--csv", default="data/output/title_review.csv", help="CSV文件路径")
     vision_cmd.add_argument("-p", "--provider", default="gcli", help="AI Provider")
     vision_cmd.add_argument("--use-yolo", action="store_true", help="使用YOLO检测")
-    vision_cmd.add_argument("--yolo-model", default="detect", choices=["detect", "pose", "segment"], help="YOLO模型类型")
+    vision_cmd.add_argument("--yolo-model", nargs="+", default=["detect"], choices=["detect", "pose", "segment"], help="YOLO模型类型（可多选）")
     vision_cmd.add_argument("--yolo-conf", type=float, default=0.5, help="YOLO置信度阈值")
     vision_cmd.add_argument("--use-clip", action="store_true", help="使用CLIP预分类")
     vision_cmd.add_argument("--clip-threshold", type=float, default=0.25, help="CLIP置信度阈值")
