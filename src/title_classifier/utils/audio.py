@@ -895,9 +895,63 @@ class AudioProcessor:
                 call_info["status"] = "错误"
             elif "rejected" in result.lower() or "无法" in result or "无法转录" in result:
                 logger.warning(f"  [{i}/{total}] API拒绝转录: {result[:80]}...")
-                failed += 1
-                fail_reasons["rejected"] += 1
                 call_info["status"] = "拒绝"
+
+                # 按10秒切片重试
+                retry_chunk = 10.0
+                chunk_start = start_time
+                chunk_idx = 0
+                while chunk_start < end_time:
+                    chunk_end = min(chunk_start + retry_chunk, end_time)
+                    chunk_dur = chunk_end - chunk_start
+                    if chunk_dur < 0.5:
+                        chunk_start = chunk_end
+                        continue
+
+                    chunk_idx += 1
+                    logger.info(f"  [{i}/{total}] 重试子块{chunk_idx}: {chunk_start:.2f}s-{chunk_end:.2f}s ({chunk_dur:.2f}秒)")
+
+                    # 提取音频
+                    chunk_audio = video_path.parent / f"{video_path.stem}_audio_{chunk_start:.0f}.wav"
+                    if not extract_audio(str(video_path), str(chunk_audio), chunk_start, chunk_end):
+                        logger.warning(f"  [{i}/{total}] 子块{chunk_idx}提取音频失败")
+                        chunk_start = chunk_end
+                        continue
+
+                    # 获取base64
+                    chunk_b64 = get_audio_base64(str(chunk_audio))
+                    try:
+                        chunk_audio.unlink()
+                    except:
+                        pass
+
+                    if not chunk_b64:
+                        logger.warning(f"  [{i}/{total}] 子块{chunk_idx}获取base64失败")
+                        chunk_start = chunk_end
+                        continue
+
+                    # 调用API
+                    chunk_result = call_audio_api(chunk_b64, prompt=prompt)
+                    if chunk_result and not chunk_result.startswith("[ERROR]") and "rejected" not in chunk_result.lower() and "无法" not in chunk_result:
+                        cleaned_chunk = clean_transcription_text(chunk_result)
+                        segments.append({
+                            "start": chunk_start,
+                            "end": chunk_end,
+                            "text": cleaned_chunk,
+                        })
+                        processed += 1
+                        logger.info(f"  [{i}/{total}] 子块{chunk_idx}识别成功: {chunk_start:.2f}s-{chunk_end:.2f}s")
+                        logger.info(f"    内容: {chunk_result[:80]}...")
+                    else:
+                        logger.warning(f"  [{i}/{total}] 子块{chunk_idx}仍失败，跳过")
+
+                    chunk_start = chunk_end
+
+                if chunk_idx > 0:
+                    fail_reasons["rejected"] += 1
+                else:
+                    failed += 1
+                    fail_reasons["rejected"] += 1
             else:
                 cleaned_result = clean_transcription_text(result)
                 segments.append({
