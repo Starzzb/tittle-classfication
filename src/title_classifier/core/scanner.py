@@ -1,4 +1,4 @@
-"""文件扫描模块"""
+"""文件扫描模块 - 简化版：只判断是否需要视觉识别"""
 
 import re
 import csv
@@ -6,9 +6,6 @@ import logging
 import warnings
 from pathlib import Path
 from typing import List, Dict, Set, Optional
-
-import jieba
-import jieba.analyse
 
 logger = logging.getLogger(__name__)
 
@@ -20,27 +17,6 @@ warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".m4v", ".ts"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif", ".tiff"}
 MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
-TOP_KEYWORDS = 5
-
-# 无意义词黑名单
-BLACKLIST_WORDS = {
-    "telegram", "tg", "group", "channel", "video", "mp4", "mkv",
-    "hd", "fhd", "4k", "1080p", "720p", "480p", "2160p",
-    "x264", "x265", "h264", "h265", "hevc", "aac", "flac",
-    "bluray", "webrip", "webdl", "hdtv", "dvdrip", "brrip",
-    "rarbg", "yts", "yify", "eztv",
-}
-
-
-def load_stopwords() -> Set[str]:
-    """加载停用词"""
-    return {
-        "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都",
-        "一", "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会",
-        "着", "没有", "看", "好", "自己", "这", "那", "啊", "呢", "吧",
-        "哦", "呀", "哇", "嗯", "哎", "啦", "吗", "！", "？", "。",
-        "，", "、", "；", "：", """, """, "（", "）", "【", "】", "《", "》",
-    }
 
 
 def has_chinese(text: str) -> bool:
@@ -63,8 +39,8 @@ def is_needs_vision(original: str) -> bool:
     """判断是否需要视觉识别"""
     orig = original.strip()
 
-    # 1. IMG/VID/DCIM 等设备前缀
-    if re.match(r"^(IMG|VID|MOV|MP4|DCIM|P\d+)[_\-\s]?\d+", orig, re.IGNORECASE):
+    # 1. IMG/VID/VIDEO/DCIM 等设备前缀
+    if re.match(r"^(IMG|VID|VIDEO|MOV|MP4|DCIM|P\d+)[_\-\s]?\d+", orig, re.IGNORECASE):
         return True
 
     # 2. Telegram 来源且无中文
@@ -74,9 +50,18 @@ def is_needs_vision(original: str) -> bool:
         if len(cleaned) < 3:
             return True
 
-    # 3. 纯 hex/hash
+    # 3. 纯 hex/hash 或随机字母数字串
     if re.match(r"^[a-f0-9]{8,}$", orig, re.IGNORECASE):
         return True
+    # 无分隔符的随机字母数字串（大小写混合，>=8位）
+    name_no_ext = Path(orig).stem
+    if re.match(r"^[a-zA-Z0-9]{8,}$", name_no_ext):
+        has_upper = bool(re.search(r"[A-Z]", name_no_ext))
+        has_lower = bool(re.search(r"[a-z]", name_no_ext))
+        has_digit = bool(re.search(r"\d", name_no_ext))
+        # 大小写混合 + 包含数字 = 大概率是随机串
+        if has_upper and has_lower and has_digit:
+            return True
 
     # 4. 去除括号后纯数字
     stripped = re.sub(r"[\(\)\[\]【】（）\s\-_.]+", "", orig)
@@ -111,12 +96,11 @@ def is_needs_vision(original: str) -> bool:
 
 
 class Scanner:
-    """文件扫描器"""
+    """文件扫描器 - 简化版"""
 
     def __init__(self, output_dir: str = "data/output"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.stopwords = load_stopwords()
 
     def scan(
         self,
@@ -186,7 +170,7 @@ class Scanner:
         return sorted(files)
 
     def _process_file(self, file_path: Path, force_reclassify: bool = False) -> Optional[Dict]:
-        """处理单个文件"""
+        """处理单个文件 - 判断是否需要视觉识别，并填入原标题作为final_name"""
         name = file_path.stem
         original_title = file_path.name
 
@@ -194,23 +178,20 @@ class Scanner:
         if is_already_classified(name) and not force_reclassify:
             return None
 
-        # 分词提取关键词
-        keywords = self._extract_keywords(name)
-
         # 判断是否需要视觉识别
         needs_vision = is_needs_vision(original_title)
 
-        # 生成建议标题
-        proposed_title = self._generate_proposed_title(keywords, name)
+        # 默认填入原标题（去除扩展名）作为final_name
+        final_name = name
 
         return {
             "original_title": original_title,
             "original_path": str(file_path),
-            "proposed_title": proposed_title,
-            "keywords": ", ".join(keywords),
             "needs_vision": str(needs_vision).lower(),
-            "final_name": proposed_title,  # 阶段1直接填入建议标题
+            "final_name": final_name,  # 默认填入原标题
             "review_status": "待确认",
+            "audio_recognized": "false",
+            "srt_path": "",
             "vision_description": "",
             "vision_keywords": "",
             "human_detected": "",
@@ -226,54 +207,15 @@ class Scanner:
             "vision_source": "",
         }
 
-    def _extract_keywords(self, text: str) -> List[str]:
-        """提取关键词"""
-        # 清理文本
-        cleaned = re.sub(r"[\(\)\[\]【】（）\-_.\s]+", " ", text)
-        cleaned = cleaned.strip()
-
-        if not cleaned:
-            return []
-
-        # 使用jieba分词
-        words = jieba.cut(cleaned)
-        keywords = []
-
-        for word in words:
-            word = word.strip()
-            if not word or len(word) < 2:
-                continue
-            if word.lower() in BLACKLIST_WORDS:
-                continue
-            if word in self.stopwords:
-                continue
-            keywords.append(word)
-
-        # 使用TF-IDF提取关键词
-        try:
-            tfidf_keywords = jieba.analyse.extract_tags(cleaned, topK=TOP_KEYWORDS)
-            for kw in tfidf_keywords:
-                if kw not in keywords and kw.lower() not in BLACKLIST_WORDS:
-                    keywords.append(kw)
-        except:
-            pass
-
-        return keywords[:TOP_KEYWORDS]
-
-    def _generate_proposed_title(self, keywords: List[str], original: str) -> str:
-        """生成建议标题"""
-        if keywords:
-            return "_".join(keywords[:3])
-        return original
-
     def _save_csv(self, rows: List[Dict], output_file: str, append: bool = False) -> None:
         """保存CSV文件"""
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         fieldnames = [
-            "original_title", "original_path", "proposed_title", "keywords",
+            "original_title", "original_path",
             "needs_vision", "final_name", "review_status",
+            "audio_recognized", "srt_path",
             "vision_description", "vision_keywords",
             "human_detected", "detection_confidence", "detection_timestamp", "detection_method",
             "clip_clothing", "clip_action", "clip_hairstyle",

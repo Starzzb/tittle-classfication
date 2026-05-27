@@ -39,6 +39,7 @@ def image_to_base64(image_path: str, max_size: int = 800) -> str:
         data = np.fromfile(image_path, dtype=np.uint8)
         img = cv2.imdecode(data, cv2.IMREAD_COLOR)
         if img is None:
+            logger.warning(f"无法解码图片: {image_path}")
             with open(image_path, "rb") as f:
                 return base64.b64encode(f.read()).decode("utf-8")
 
@@ -51,7 +52,11 @@ def image_to_base64(image_path: str, max_size: int = 800) -> str:
             img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
         _, buffer = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        return base64.b64encode(buffer).decode("utf-8")
+        result = base64.b64encode(buffer).decode("utf-8")
+        
+        logger.debug(f"图片转base64: {image_path}, 原始大小={w}x{h}, base64长度={len(result)}")
+        
+        return result
     except Exception as e:
         logger.error(f"图片转base64失败: {e}")
         return ""

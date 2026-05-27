@@ -7,6 +7,15 @@ import os
 import sys
 from pathlib import Path
 
+# Windows控制台UTF-8支持
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from .core import Scanner, Refiner, VisionProcessor, Renamer
 
 
@@ -67,11 +76,11 @@ def cmd_vision(args):
     # 加载环境变量
     load_env(Path.cwd() / ".env")
 
-    # 初始化处理器
+    # 初始化处理器（YOLO模式固定使用pose模型）
     processor = VisionProcessor(
         provider=args.provider,
         use_yolo=args.use_yolo,
-        yolo_model=args.yolo_model,
+        yolo_model="pose" if args.use_yolo else "detect",
         yolo_conf=args.yolo_conf,
         use_clip=args.use_clip,
         clip_threshold=args.clip_threshold,
@@ -209,6 +218,125 @@ def cmd_rename(args):
     print(f"  错误: {stats['error']}")
 
 
+def cmd_audio(args):
+    """音频识别命令"""
+    import time
+    from .utils.audio import AudioProcessor, load_audio_config
+
+    csv_path = Path(args.csv)
+    if not csv_path.exists():
+        print(f"[错误] CSV文件不存在: {csv_path}")
+        return
+
+    # 加载环境变量
+    load_env(Path.cwd() / ".env")
+
+    # 加载音频配置
+    audio_config = load_audio_config()
+    print(f"音频配置: 自适应分段={audio_config['adaptive_enabled']}, 静音跳过={audio_config['skip_silence']}, 阈值={audio_config['volume_threshold']}")
+
+    # 初始化音频处理器
+    audio_processor = AudioProcessor(provider=args.provider, config=audio_config)
+
+    # 读取CSV
+    with open(csv_path, "r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fieldnames = list(reader.fieldnames)
+        rows = list(reader)
+
+    if not rows:
+        print("[警告] CSV为空")
+        return
+
+    # 确保字段存在
+    for col in ["audio_recognized", "srt_path"]:
+        if col not in fieldnames:
+            fieldnames.append(col)
+
+    # 筛选需要音频识别的记录
+    pending = [
+        (i, row)
+        for i, row in enumerate(rows)
+        if row.get("needs_vision", "").strip().lower() == "true"
+        and row.get("audio_recognized", "").strip().lower() != "true"
+    ]
+
+    if args.all:
+        pending = [
+            (i, row)
+            for i, row in enumerate(rows)
+            if row.get("original_path", "").strip()
+            and row.get("audio_recognized", "").strip().lower() != "true"
+        ]
+
+    print(f"共 {len(rows)} 条记录，待处理 {len(pending)} 条")
+
+    if not pending:
+        print("[完成] 无需处理")
+        return
+
+    # SRT输出目录
+    srt_dir = str(csv_path.parent / "subtitles")
+    Path(srt_dir).mkdir(parents=True, exist_ok=True)
+
+    # 批量处理
+    total = len(pending)
+    success = 0
+    failed = 0
+
+    for idx, (row_idx, row) in enumerate(pending):
+        original_path = row.get("original_path", "").strip()
+        original_title = row.get("original_title", "").strip()
+
+        if not original_path or not Path(original_path).exists():
+            print(f"[{idx+1}/{total}] 跳过（文件不存在）: {original_title[:40]}")
+            failed += 1
+            continue
+
+        print(f"[{idx+1}/{total}] 处理: {original_title[:40]}")
+
+        start_time = time.time()
+
+        try:
+            # 生成SRT路径（使用原文件名）
+            srt_name = Path(original_title).stem + ".srt"
+            srt_path = str(Path(srt_dir) / srt_name)
+
+            # 调用音频处理器
+            result_path = audio_processor.process_video(
+                video_path=original_path,
+                output_srt=srt_path,
+            )
+
+            if result_path:
+                # 更新CSV行
+                rows[row_idx]["audio_recognized"] = "true"
+                rows[row_idx]["srt_path"] = result_path
+
+                elapsed = time.time() - start_time
+                print(f"  [完成] {elapsed:.1f}秒")
+                print(f"  SRT: {result_path}")
+                success += 1
+            else:
+                print(f"  [警告] 音频识别无结果")
+                failed += 1
+
+        except Exception as e:
+            print(f"  [错误] {e}")
+            failed += 1
+
+        # 每处理完一条立即保存CSV
+        with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    print(f"\n[统计]")
+    print(f"  成功: {success}")
+    print(f"  失败: {failed}")
+    print(f"  结果已保存至: {csv_path}")
+
+
 def cmd_gui(args):
     """GUI命令"""
     try:
@@ -249,17 +377,23 @@ def main():
     vision_cmd = subparsers.add_parser("vision", help="视觉识别")
     vision_cmd.add_argument("-c", "--csv", default="data/output/title_review.csv", help="CSV文件路径")
     vision_cmd.add_argument("-p", "--provider", default="gcli", help="AI Provider")
-    vision_cmd.add_argument("--use-yolo", action="store_true", help="使用YOLO检测")
-    vision_cmd.add_argument("--yolo-model", nargs="+", default=["detect"], choices=["detect", "pose", "segment"], help="YOLO模型类型（可多选）")
+    vision_cmd.add_argument("--use-yolo", action="store_true", help="使用YOLO姿态检测（分析人体姿态，智能选择代表性帧）")
     vision_cmd.add_argument("--yolo-conf", type=float, default=0.5, help="YOLO置信度阈值")
     vision_cmd.add_argument("--use-clip", action="store_true", help="使用CLIP预分类")
     vision_cmd.add_argument("--clip-threshold", type=float, default=0.25, help="CLIP置信度阈值")
     vision_cmd.add_argument("--max-image-size", type=int, default=800, help="图片最大尺寸")
-    vision_cmd.add_argument("--vlm-frames", type=int, default=10, help="VLM帧数（全面分析模式默认10帧）")
-    vision_cmd.add_argument("--analysis-step", type=float, default=2.0, help="视频分析采样间隔（秒，默认2秒）")
+    vision_cmd.add_argument("--vlm-frames", type=int, default=10, help="VLM帧数（UHD模式使用，YOLO模式由采样间隔决定）")
+    vision_cmd.add_argument("--analysis-step", type=float, default=2.0, help="YOLO模式采样间隔（秒，默认2秒）")
     vision_cmd.add_argument("--audio", action="store_true", help="生成音频字幕（追加到SRT文件）")
     vision_cmd.add_argument("--all", action="store_true", help="处理所有未识别的文件")
     vision_cmd.set_defaults(func=cmd_vision)
+
+    # audio 命令
+    audio_cmd = subparsers.add_parser("audio", help="音频识别（为视觉识别做准备）")
+    audio_cmd.add_argument("-c", "--csv", default="data/output/title_review.csv", help="CSV文件路径")
+    audio_cmd.add_argument("-p", "--provider", default="mimo", help="AI Provider")
+    audio_cmd.add_argument("--all", action="store_true", help="处理所有未识别的文件")
+    audio_cmd.set_defaults(func=cmd_audio)
 
     # rename 命令
     rename_cmd = subparsers.add_parser("rename", help="执行重命名")

@@ -1,4 +1,4 @@
-"""YOLOv8检测器"""
+"""YOLOv8检测器 - 姿态检测专用"""
 
 import logging
 from pathlib import Path
@@ -13,11 +13,7 @@ logger = logging.getLogger(__name__)
 
 # YOLO 模型配置
 YOLO_MODEL_DIR = Path(__file__).parent.parent.parent.parent / "models" / "yolo"
-YOLO_MODELS = {
-    "detect": YOLO_MODEL_DIR / "yolov8n.pt",
-    "pose": YOLO_MODEL_DIR / "yolov8n-pose.pt",
-    "segment": YOLO_MODEL_DIR / "yolov8n-seg.pt",
-}
+YOLO_POSE_MODEL = YOLO_MODEL_DIR / "yolov8n-pose.pt"
 
 # COCO 数据集人体类别 ID
 PERSON_CLASS_ID = 0
@@ -32,17 +28,17 @@ KEYPOINT_NAMES = [
 
 
 class YOLODetector(BaseDetector):
-    """YOLOv8多功能检测器"""
+    """YOLOv8姿态检测器"""
 
     def __init__(
         self,
-        model_type: str = "detect",
+        model_type: str = "pose",
         device: str = None,
         confidence: float = 0.5,
         iou_threshold: float = 0.45,
     ):
         super().__init__(confidence)
-        self.model_type = model_type
+        self.model_type = "pose"  # 固定使用pose模型
         self.iou_threshold = iou_threshold
         self.device = device or self._detect_device()
         self._yolo_model = None
@@ -64,15 +60,15 @@ class YOLODetector(BaseDetector):
             return "cpu"
 
     def load_model(self) -> bool:
-        """加载YOLO模型"""
+        """加载YOLO姿态模型"""
         if self._loaded:
             return True
 
         try:
             from ultralytics import YOLO
 
-            model_path = YOLO_MODELS.get(self.model_type, YOLO_MODELS["detect"])
-            logger.info(f"加载YOLO模型: {model_path} (设备: {self.device})")
+            model_path = YOLO_POSE_MODEL
+            logger.info(f"加载YOLO姿态模型: {model_path} (设备: {self.device})")
 
             if not model_path.exists():
                 logger.error(f"YOLO模型文件不存在: {model_path}")
@@ -84,7 +80,7 @@ class YOLODetector(BaseDetector):
                 self._yolo_model.to("cuda")
 
             self._loaded = True
-            logger.info("YOLO模型加载完成")
+            logger.info("YOLO姿态模型加载完成")
             return True
 
         except Exception as e:
@@ -144,12 +140,6 @@ class YOLODetector(BaseDetector):
 
     def estimate_pose(self, frame: np.ndarray) -> Dict[str, Any]:
         """估计人体姿态"""
-        if self.model_type != "pose":
-            self.model_type = "pose"
-            self._loaded = False
-            if not self.load_model():
-                return {"has_person": False, "poses": [], "max_confidence": 0.0}
-
         if not self._loaded:
             if not self.load_model():
                 return {"has_person": False, "poses": [], "max_confidence": 0.0}
@@ -231,112 +221,31 @@ class YOLODetector(BaseDetector):
             logger.error(f"YOLO姿态估计失败: {e}")
             return {"has_person": False, "poses": [], "max_confidence": 0.0}
 
-    def segment_persons(self, frame: np.ndarray) -> Dict[str, Any]:
-        """实例分割"""
-        if self.model_type != "segment":
-            self.model_type = "segment"
-            self._loaded = False
-            if not self.load_model():
-                return {"has_person": False, "segments": [], "max_confidence": 0.0}
-
-        if not self._loaded:
-            if not self.load_model():
-                return {"has_person": False, "segments": [], "max_confidence": 0.0}
-
-        try:
-            results = self._yolo_model(
-                frame, conf=self.confidence, iou=self.iou_threshold, verbose=False
-            )
-
-            segments = []
-            max_conf = 0.0
-
-            for result in results:
-                if result.masks is None or result.boxes is None:
-                    continue
-
-                for i, (mask, box) in enumerate(zip(result.masks, result.boxes)):
-                    if int(box.cls[0]) != PERSON_CLASS_ID:
-                        continue
-
-                    conf = float(box.conf[0])
-                    mask_data = mask.data[0].cpu().numpy()
-
-                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                    h_img, w_img = frame.shape[:2]
-
-                    cx = (x1 + x2) / 2 / w_img
-                    cy = (y1 + y2) / 2 / h_img
-                    w = (x2 - x1) / w_img
-                    h = (y2 - y1) / h_img
-
-                    mask_uint8 = (mask_data * 255).astype(np.uint8)
-                    mask_resized = cv2.resize(mask_uint8, (w_img, h_img))
-
-                    masked_frame = cv2.bitwise_and(frame, frame, mask=mask_resized)
-
-                    x1_int, y1_int, x2_int, y2_int = int(x1), int(y1), int(x2), int(y2)
-                    cropped = masked_frame[y1_int:y2_int, x1_int:x2_int]
-
-                    segments.append({
-                        "bbox": [cx, cy, w, h],
-                        "bbox_pixel": [x1, y1, x2, y2],
-                        "confidence": conf,
-                        "mask": mask_resized,
-                        "cropped": cropped,
-                        "area": float(np.sum(mask_data > 0.5)),
-                    })
-
-                    if conf > max_conf:
-                        max_conf = conf
-
-            return {
-                "has_person": len(segments) > 0,
-                "segments": segments,
-                "max_confidence": max_conf,
-            }
-
-        except Exception as e:
-            logger.error(f"YOLO分割失败: {e}")
-            return {"has_person": False, "segments": [], "max_confidence": 0.0}
-
     def detect_and_crop(self, frame: np.ndarray, padding: float = 0.15) -> Dict[str, Any]:
         """检测并裁剪人体区域"""
-        if self.model_type == "segment":
-            result = self.segment_persons(frame)
-            if result["has_person"]:
-                best_segment = max(result["segments"], key=lambda x: x["area"])
-                return {
-                    "has_human": True,
-                    "max_confidence": best_segment["confidence"],
-                    "human_crop": best_segment["cropped"],
-                    "bbox": best_segment["bbox"],
-                    "persons": result["segments"],
-                }
-        else:
-            result = self.detect(frame)
-            if result["has_person"]:
-                best_person = max(result["persons"], key=lambda x: x["confidence"])
+        result = self.detect(frame)
+        if result["has_person"]:
+            best_person = max(result["persons"], key=lambda x: x["confidence"])
 
-                x1, y1, x2, y2 = best_person["bbox_pixel"]
-                h, w = frame.shape[:2]
+            x1, y1, x2, y2 = best_person["bbox_pixel"]
+            h, w = frame.shape[:2]
 
-                bw = x2 - x1
-                bh = y2 - y1
-                x1 = max(0, int(x1 - padding * bw))
-                y1 = max(0, int(y1 - padding * bh))
-                x2 = min(w, int(x2 + padding * bw))
-                y2 = min(h, int(y2 + padding * bh))
+            bw = x2 - x1
+            bh = y2 - y1
+            x1 = max(0, int(x1 - padding * bw))
+            y1 = max(0, int(y1 - padding * bh))
+            x2 = min(w, int(x2 + padding * bw))
+            y2 = min(h, int(y2 + padding * bh))
 
-                cropped = frame[y1:y2, x1:x2]
+            cropped = frame[y1:y2, x1:x2]
 
-                return {
-                    "has_human": True,
-                    "max_confidence": best_person["confidence"],
-                    "human_crop": cropped,
-                    "bbox": best_person["bbox"],
-                    "persons": result["persons"],
-                }
+            return {
+                "has_human": True,
+                "max_confidence": best_person["confidence"],
+                "human_crop": cropped,
+                "bbox": best_person["bbox"],
+                "persons": result["persons"],
+            }
 
         return {
             "has_human": False,
@@ -392,7 +301,7 @@ def analyze_pose_for_vlm(keypoints: dict) -> list:
 
 
 # 保持向后兼容
-def detect_human_yolo(frame_path: str, model_type: str = "detect", conf_threshold: float = 0.5) -> Dict:
+def detect_human_yolo(frame_path: str, model_type: str = "pose", conf_threshold: float = 0.5) -> Dict:
     """检测人体（向后兼容）"""
     detector = YOLODetector(model_type=model_type, confidence=conf_threshold)
     return detector.detect_from_file(frame_path)
@@ -400,7 +309,7 @@ def detect_human_yolo(frame_path: str, model_type: str = "detect", conf_threshol
 
 def find_human_frame_yolo(
     video_path: str,
-    model_type: str = "detect",
+    model_type: str = "pose",
     step_seconds: float = 5.0,
     max_retries: int = 3,
     conf_threshold: float = 0.5,
@@ -416,7 +325,7 @@ def find_human_frame_yolo(
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace",
         )
         duration = float(result.stdout.strip()) if result.returncode == 0 else 0.0
     except:
@@ -442,7 +351,7 @@ def find_human_frame_yolo(
             result = subprocess.run(
                 ["ffmpeg", "-y", "-ss", timestamp_str, "-i", video_path,
                  "-frames:v", "1", "-q:v", "2", frame_path],
-                capture_output=True, timeout=15,
+                capture_output=True, timeout=15, encoding="utf-8", errors="replace",
             )
 
             if result.returncode != 0 or not Path(frame_path).exists():

@@ -56,7 +56,7 @@ DEFAULT_PROVIDERS: Dict[str, Dict[str, Any]] = {
         "type": "multi",
         "url": "https://api.xiaomimimo.com/v1/chat/completions",
         "env_key": "MIMO_API_KEY",
-        "default_model": "mimo-v2.5",
+        "default_model": "mimo-v2.5-pro",
         "requires_api_key": True,
         "supports_1b": False,
         "supports_1c": True,
@@ -449,9 +449,17 @@ def call_vision_api(
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 result = json.loads(resp.read())
-                return result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                
+                # 记录API响应（用于调试）
+                logger.debug(f"Vision API响应: provider={provider_name}, model={model}, 响应长度={len(content)}")
+                if not content:
+                    logger.warning(f"Vision API返回空响应: {result}")
+                
+                return content
         except Exception as e:
             last_error = e
+            logger.error(f"Vision API调用失败 (尝试 {attempt+1}/{retries}): {e}")
             if attempt < retries - 1:
                 time.sleep(2 * (attempt + 1))
 
@@ -571,7 +579,7 @@ def call_audio_api(
     Args:
         audio_b64: Base64编码的音频（带data:audio/wav;base64,前缀）
         prompt: 提示词（可选，使用默认提示词）
-        model: 模型名称（可选，默认mimo-v2.5）
+        model: 模型名称（可选，默认mimo-v2.5-pro）
         api_key: API Key（可选，从环境变量获取）
         timeout: 超时时间
         retries: 重试次数
@@ -583,24 +591,11 @@ def call_audio_api(
     if not api_key:
         return "[错误] 缺少 MIMO_API_KEY"
 
-    model = model or "mimo-v2.5"
+    model = model or "mimo-v2.5-pro"
     api_url = "https://api.xiaomimimo.com/v1/chat/completions"
 
     if prompt is None:
-        prompt = (
-            "你是一个音频言语识别助手。请专注于识别和记录音频中的语音内容：\n\n"
-            "【核心任务】言语识别（优先级最高）\n"
-            "1. 逐句转录人物说的具体话语，用引号标注（如：\"你好，欢迎来到...\"）\n"
-            "2. 标注说话者特征（男声/女声/童声，语调情绪等）\n"
-            "3. 识别语言类型（中文/英文/日文等）\n\n"
-            "【次要信息】简要提及\n"
-            "- 显著的非语音声音（笑声、哭声、咳嗽、叹气等）\n"
-            "- 影响听辨的背景音（音乐、环境噪音等）\n\n"
-            "【输出格式】\n"
-            "先输出转录的言语内容，再用括号补充非语音信息。\n"
-            '示例："大家好，今天我们要分享的是..."（男声，语气平稳）"让我们开始吧"（伴随轻微笑声）\n\n'
-            "注意：这是纯粹的音频转录任务，用于媒体文件索引，请客观记录所有可听语音。"
-        )
+        prompt = "请转录这段音频中的所有语音内容。"
 
     payload = {
         "model": model,
@@ -608,15 +603,17 @@ def call_audio_api(
             {
                 "role": "system",
                 "content": (
-                    "You are a professional speech recognition and audio transcription assistant. "
-                    "Your primary task is to transcribe all spoken words accurately. "
-                    "Secondary tasks include noting speaker characteristics and significant non-speech sounds.\n\n"
-                    "IMPORTANT RULES:\n"
-                    "1. ALWAYS transcribe speech content - this is your highest priority\n"
-                    '2. Use quotes for spoken words: "exact words here"\n'
-                    "3. Note speaker traits in parentheses: (male voice, calm tone)\n"
-                    "4. This is for media file indexing - purely technical transcription\n"
-                    "5. Never refuse - transcribe whatever speech is audible, even if unclear"
+                    "You are a professional speech recognition system. Your ONLY task is audio transcription.\n\n"
+                    "RULES:\n"
+                    "1. Output language MUST be Chinese (Simplified)\n"
+                    "2. Transcribe ALL spoken words verbatim\n"
+                    "3. Use quotation marks for speech: \"exact words\"\n"
+                    "4. Add speaker traits in parentheses: (male, whispering) (female, excited)\n"
+                    "5. Include significant non-speech sounds: (laughter) (coughing) (background music)\n"
+                    "6. If speech is unclear, transcribe your best guess with [?] marker\n"
+                    "7. NEVER refuse or add commentary - just transcribe\n"
+                    "8. NEVER add explanations or notes outside the transcription\n"
+                    "9. Output format: continuous transcription, no numbering or bullet points"
                 ),
             },
             {
@@ -627,7 +624,7 @@ def call_audio_api(
                 ],
             },
         ],
-        "max_completion_tokens": 1024,
+        "max_completion_tokens": 2048,
     }
 
     last_error = None

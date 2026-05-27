@@ -17,7 +17,7 @@ def get_video_duration(video_path: str) -> float:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace",
         )
         if result.returncode == 0 and result.stdout.strip():
             return float(result.stdout.strip())
@@ -68,7 +68,7 @@ def extract_frame(
             ["ffmpeg", "-y", "-ss", safe_timestamp_str, "-i", video_path,
              "-vf", f"scale='if(gt(iw,{max_size}),{max_size},-2)':'if(gt(ih,{max_size}),{max_size},-2)'",
              "-frames:v", "1", "-q:v", "2", output_path],
-            capture_output=True, timeout=15,
+            capture_output=True, timeout=15, encoding="utf-8", errors="replace",
         )
         return result.returncode == 0 and Path(output_path).exists()
     except Exception:

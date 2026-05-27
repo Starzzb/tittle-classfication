@@ -28,7 +28,7 @@ class VisionProcessor:
         self,
         provider: str = "gcli",
         use_yolo: bool = False,
-        yolo_model: str = "detect",
+        yolo_model: str = "pose",
         yolo_conf: float = 0.5,
         use_clip: bool = False,
         clip_threshold: float = 0.25,
@@ -38,7 +38,7 @@ class VisionProcessor:
     ):
         self.provider = provider
         self.use_yolo = use_yolo
-        self.yolo_model = yolo_model
+        self.yolo_model = yolo_model  # 固定使用pose模型
         self.yolo_conf = yolo_conf
         self.use_clip = use_clip
         self.clip_threshold = clip_threshold
@@ -82,19 +82,22 @@ class VisionProcessor:
 
         return True
 
-    def process_video(self, video_path: str, title: str) -> Dict:
+    def process_video(self, video_path: str, title: str, audio_context: str = "") -> Dict:
         """处理视频 - 全面分析模式"""
         duration = get_video_duration(video_path)
         logger.info(f"视频模式: {title[:30]} (时长: {duration:.1f}s)")
 
+        if audio_context:
+            logger.info(f"检测到音频上下文，长度: {len(audio_context)} 字符")
+
         if self.use_yolo and self.yolo_detector:
             # YOLO全面分析模式
-            return self._process_video_comprehensive(video_path, title, duration)
+            return self._process_video_comprehensive(video_path, title, duration, audio_context)
         else:
             # 传统模式
-            return self._process_video_traditional(video_path, title, duration)
+            return self._process_video_traditional(video_path, title, duration, audio_context)
 
-    def _process_video_comprehensive(self, video_path: str, title: str, duration: float) -> Dict:
+    def _process_video_comprehensive(self, video_path: str, title: str, duration: float, audio_context: str = "") -> Dict:
         """视频全面分析"""
         logger.info(f"启动YOLO全面分析模式，采样间隔: {self.analysis_step}秒")
 
@@ -104,6 +107,8 @@ class VisionProcessor:
         # 2. 智能选择代表性帧
         selected_indices = self._select_representative_frames(video_analysis["timeline"])
         selected_frames = video_analysis["frames"]
+
+        logger.info(f"帧选择完成: 总帧数={len(selected_frames)}, 选中帧数={len(selected_indices)}")
 
         # 3. 生成视频摘要
         video_summary = self._generate_video_summary(video_analysis["timeline"], duration)
@@ -118,12 +123,18 @@ class VisionProcessor:
             video_summary, frame_descriptions, len(selected_indices)
         )
 
-        # 6. 调用VLM
+        # 6. 调用VLM（传入音频上下文）
+        frames_for_vlm = [selected_frames[i] for i in selected_indices if i < len(selected_frames)]
+        logger.info(f"调用VLM: {len(frames_for_vlm)}帧")
+        
         result = self._call_vlm_comprehensive(
-            [selected_frames[i] for i in selected_indices if i < len(selected_frames)],
+            frames_for_vlm,
             title,
-            comprehensive_context
+            comprehensive_context,
+            audio_context
         )
+
+        logger.info(f"VLM结果: 描述='{result.get('description', '')[:50]}...', 关键词='{result.get('keywords', '')[:50]}...'")
 
         # 7. 保存分析结果
         analysis_result = {
@@ -138,7 +149,7 @@ class VisionProcessor:
 
         return analysis_result
 
-    def _process_video_traditional(self, video_path: str, title: str, duration: float) -> Dict:
+    def _process_video_traditional(self, video_path: str, title: str, duration: float, audio_context: str = "") -> Dict:
         """传统处理模式"""
         frames = self._extract_frames(video_path)
         if not frames:
@@ -152,6 +163,13 @@ class VisionProcessor:
         yolo_context = None
         if yolo_results:
             yolo_context = self._build_yolo_context(yolo_results, selected_frames)
+
+        # 如果有音频上下文，添加到yolo_context中
+        if audio_context:
+            if yolo_context:
+                yolo_context = f"{yolo_context}\n\n【音频转录内容】\n{audio_context}"
+            else:
+                yolo_context = f"【音频转录内容】\n{audio_context}"
 
         result = self._call_vlm(selected_frames, title, yolo_context)
 
@@ -179,6 +197,7 @@ class VisionProcessor:
             # 提取帧
             frame_path = str(tmp_dir / f"frame_{i:04d}_{ts:.1f}s.jpg")
             if not extract_frame(video_path, frame_path, timestamp=str(ts), max_size=400):
+                logger.debug(f"帧提取失败: {frame_path}")
                 continue
 
             frames.append(frame_path)
@@ -213,7 +232,12 @@ class VisionProcessor:
             if (i + 1) % 10 == 0:
                 logger.info(f"已分析 {i + 1}/{len(timestamps)} 帧")
 
-        logger.info(f"全面分析完成: {len(timeline)}帧")
+        logger.info(f"全面分析完成: {len(timeline)}帧, 提取帧数: {len(frames)}")
+
+        # 临时文件保留用于调试，不自动清理
+        # 如需清理可取消下面注释
+        # import shutil
+        # shutil.rmtree(tmp_dir, ignore_errors=True)
 
         return {
             "frames": frames,
@@ -410,9 +434,9 @@ class VisionProcessor:
 
         return "\n".join(context_lines)
 
-    def _call_vlm_comprehensive(self, frames: List[str], title: str, context: str) -> Dict:
+    def _call_vlm_comprehensive(self, frames: List[str], title: str, context: str, audio_context: str = "") -> Dict:
         """调用VLM - 全面分析模式"""
-        prompt = self._build_comprehensive_prompt(title, len(frames), context)
+        prompt = self._build_comprehensive_prompt(title, len(frames), context, audio_context)
 
         if len(frames) > 1:
             images_b64 = [image_to_base64(f, max_size=self.max_image_size) for f in frames]
@@ -427,13 +451,28 @@ class VisionProcessor:
                 model=self.model, api_key=self.api_key,
             )
 
+        # 记录VLM响应（用于调试）
+        logger.debug(f"VLM响应: {result[:500] if result else '空'}")
+
         return self._parse_vision_response(result)
 
-    def _build_comprehensive_prompt(self, title: str, n_frames: int, context: str) -> str:
+    def _build_comprehensive_prompt(self, title: str, n_frames: int, context: str, audio_context: str = "") -> str:
         """构建全面分析提示词"""
+        
+        # 构建音频上下文部分
+        audio_section = ""
+        if audio_context:
+            audio_section = f"""
+
+【音频转录内容】（参考音频内容可以更准确地理解视频）
+{audio_context}
+
+请结合音频转录内容和视觉画面，综合分析视频。"""
+
         return f"""这是媒体文件 "{title}" 的{n_frames}个关键帧截图，用于文件管理归类。
 
 {context}
+{audio_section}
 
 请根据以上预分析结果和各帧截图，综合判断并描述这个视频的完整情况：
 
@@ -523,6 +562,11 @@ class VisionProcessor:
             for f in extra:
                 if f not in frames:
                     frames.append(f)
+
+        # 临时文件保留用于调试，不自动清理
+        # 如需清理可取消下面注释
+        # import shutil
+        # shutil.rmtree(tmp_dir, ignore_errors=True)
 
         return frames
 
@@ -669,12 +713,47 @@ class VisionProcessor:
     def _parse_vision_response(self, response: str) -> Dict:
         """解析VLM响应"""
         result = {"description": "", "keywords": ""}
-        desc_match = re.search(r"描述[：:]\s*(.+)", response)
-        kw_match = re.search(r"关键词[：:]\s*(.+)", response)
+        
+        if not response:
+            logger.warning("VLM响应为空")
+            return result
+        
+        # 尝试多种格式解析
+        # 格式1: "描述：xxx\n关键词：xxx"
+        desc_match = re.search(r"描述[：:]\s*(.+?)(?:\n|$)", response, re.DOTALL)
+        kw_match = re.search(r"关键词[：:]\s*(.+?)(?:\n|$)", response, re.DOTALL)
+        
         if desc_match:
             result["description"] = desc_match.group(1).strip()
         if kw_match:
             result["keywords"] = kw_match.group(1).strip()
+        
+        # 格式2: "1. 描述：xxx\n2. 关键词：xxx"
+        if not result["description"]:
+            desc_match2 = re.search(r"1[.、]?\s*描述[：:]\s*(.+?)(?:\n|2[.、]?\s*关键词)", response, re.DOTALL)
+            if desc_match2:
+                result["description"] = desc_match2.group(1).strip()
+        
+        if not result["keywords"]:
+            kw_match2 = re.search(r"2[.、]?\s*关键词[：:]\s*(.+?)(?:\n|$)", response, re.DOTALL)
+            if kw_match2:
+                result["keywords"] = kw_match2.group(1).strip()
+        
+        # 格式3: 如果还是没有，尝试从整个响应中提取
+        if not result["description"] and not result["keywords"]:
+            # 检查是否包含"描述"和"关键词"
+            if "描述" in response and "关键词" in response:
+                # 尝试按行分割
+                lines = response.split("\n")
+                for i, line in enumerate(lines):
+                    if "描述" in line and "：" in line:
+                        result["description"] = line.split("：", 1)[1].strip()
+                    elif "关键词" in line and "：" in line:
+                        result["keywords"] = line.split("：", 1)[1].strip()
+        
+        # 记录解析结果
+        logger.debug(f"解析结果: 描述='{result['description'][:50]}...', 关键词='{result['keywords'][:50]}...'")
+        
         return result
 
     def generate_final_name(self, keywords: str, original_title: str) -> str:
@@ -775,7 +854,7 @@ class VisionProcessor:
             title: 标题
             original_title: 原始文件名（用于生成final_name）
             srt_output_dir: SRT输出目录
-            generate_audio: 是否生成音频字幕
+            generate_audio: 是否生成音频字幕（已废弃，保留兼容性）
         
         Returns:
             {
@@ -789,8 +868,18 @@ class VisionProcessor:
         if original_title is None:
             original_title = Path(video_path).name
 
-        # 处理视频
-        result = self.process_video(video_path, title)
+        # 检查是否已有音频SRT
+        audio_srt_path = self._find_audio_srt(original_title, srt_output_dir)
+        audio_context = ""
+        
+        if audio_srt_path:
+            # 读取音频转录内容
+            audio_context = self._read_audio_transcription(audio_srt_path)
+            logger.info(f"检测到音频SRT，将作为VLM上下文: {audio_srt_path}")
+            logger.info(f"音频上下文长度: {len(audio_context)} 字符")
+
+        # 处理视频（传入音频上下文）
+        result = self.process_video(video_path, title, audio_context)
 
         if "error" in result:
             return result
@@ -802,14 +891,17 @@ class VisionProcessor:
         # 生成final_name
         final_name = self.generate_final_name(keywords, original_title)
 
-        # 生成SRT（使用final_name作为文件名）
-        srt_path = self.generate_srt(
-            video_path, description, keywords, final_name, video_summary, srt_output_dir
-        )
-
-        # 如果启用音频字幕，追加到SRT文件
-        if generate_audio:
-            srt_path = self._append_audio_subtitles(video_path, srt_path)
+        # 生成/重命名SRT
+        if audio_srt_path:
+            # 重命名SRT文件并插入视觉描述
+            srt_path = self._rename_and_update_srt(
+                audio_srt_path, final_name, description, keywords, video_summary
+            )
+        else:
+            # 正常生成SRT
+            srt_path = self.generate_srt(
+                video_path, description, keywords, final_name, video_summary, srt_output_dir
+            )
 
         return {
             "description": description,
@@ -818,6 +910,131 @@ class VisionProcessor:
             "srt_path": srt_path,
             "video_summary": video_summary,
         }
+
+    def _find_audio_srt(self, original_title: str, srt_output_dir: str) -> str:
+        """
+        查找已有的音频SRT文件
+        
+        Args:
+            original_title: 原始文件名
+            srt_output_dir: SRT输出目录
+        
+        Returns:
+            音频SRT文件路径，如果不存在返回空字符串
+        """
+        srt_dir = Path(srt_output_dir)
+        srt_name = Path(original_title).stem + ".srt"
+        srt_path = srt_dir / srt_name
+        
+        if srt_path.exists():
+            return str(srt_path)
+        
+        return ""
+
+    def _read_audio_transcription(self, srt_path: str) -> str:
+        """
+        读取SRT文件中的音频转录内容
+        
+        Args:
+            srt_path: SRT文件路径
+        
+        Returns:
+            音频转录内容（纯文本）
+        """
+        try:
+            with open(srt_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            # 解析SRT格式，提取文本内容
+            import re
+            # 匹配SRT条目：序号 + 时间戳 + 文本
+            pattern = r'\d+\n\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}\n(.+?)(?=\n\n|\Z)'
+            matches = re.findall(pattern, content, re.DOTALL)
+            
+            # 合并所有文本
+            transcription = "\n".join(matches)
+            
+            return transcription.strip()
+            
+        except Exception as e:
+            logger.error(f"读取音频SRT失败: {e}")
+            return ""
+
+    def _rename_and_update_srt(
+        self,
+        audio_srt_path: str,
+        final_name: str,
+        description: str,
+        keywords: str,
+        video_summary: Dict,
+    ) -> str:
+        """
+        重命名音频SRT文件并插入视觉描述
+        
+        Args:
+            audio_srt_path: 原音频SRT路径
+            final_name: 最终文件名
+            description: 视觉描述
+            keywords: 关键词
+            video_summary: 视频摘要
+        
+        Returns:
+            新SRT文件路径
+        """
+        try:
+            audio_srt = Path(audio_srt_path)
+            
+            # 生成新的SRT文件名（使用final_name）
+            new_srt_name = Path(final_name).stem + ".srt"
+            new_srt_path = audio_srt.parent / new_srt_name
+            
+            # 读取原音频SRT内容
+            with open(audio_srt, "r", encoding="utf-8") as f:
+                audio_content = f.read()
+            
+            # 构建视觉描述元数据
+            pose_summary = ""
+            if video_summary and video_summary.get("has_person"):
+                main_pose = video_summary.get("main_pose", "未知")
+                pose_changes = len(video_summary.get("pose_changes", []))
+                person_ratio = video_summary.get("person_ratio", 0) * 100
+                pose_summary = f"主要姿态：{main_pose}，姿态变化{pose_changes}次，人体出现{person_ratio:.0f}%"
+
+            # 构建元数据帧
+            metadata_frame = "0\n00:00:00,000 --> 00:00:01,000\n"
+            metadata_frame += f"【视频描述】{description}\n"
+            metadata_frame += f"【关键词】{keywords}\n"
+            if pose_summary:
+                metadata_frame += f"【姿态分析】{pose_summary}\n"
+            metadata_frame += "\n"
+            
+            # 重新编号音频SRT条目（从1开始）
+            import re
+            # 替换SRT条目的序号
+            def replace_index(match):
+                return match.group(1) + "\n"
+            
+            # 在元数据帧后添加音频内容
+            new_content = metadata_frame + audio_content
+            
+            # 写入新SRT文件
+            with open(new_srt_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            
+            # 删除原音频SRT（如果新路径不同）
+            if str(audio_srt) != str(new_srt_path):
+                try:
+                    audio_srt.unlink()
+                    logger.info(f"已删除原音频SRT: {audio_srt}")
+                except Exception as e:
+                    logger.warning(f"删除原音频SRT失败: {e}")
+            
+            logger.info(f"SRT已重命名并更新: {new_srt_path}")
+            return str(new_srt_path)
+            
+        except Exception as e:
+            logger.error(f"重命名并更新SRT失败: {e}")
+            return audio_srt_path
 
     def _append_audio_subtitles(self, video_path: str, srt_path: str) -> str:
         """
@@ -831,10 +1048,16 @@ class VisionProcessor:
             更新后的SRT文件路径
         """
         try:
-            from ..utils.audio import AudioProcessor
+            from ..utils.audio import AudioProcessor, load_audio_config
             
             logger.info("开始生成音频字幕...")
-            audio_processor = AudioProcessor(provider="mimo")
+            
+            # 每次都重新加载配置（确保GUI修改后及时生效）
+            audio_config = load_audio_config()
+            logger.info(f"音频配置: 自适应分段={audio_config['adaptive_enabled']}, 静音跳过={audio_config['skip_silence']}, 阈值={audio_config['volume_threshold']}")
+            
+            # 使用配置初始化处理器
+            audio_processor = AudioProcessor(provider="mimo", config=audio_config)
             
             # 生成临时音频字幕
             temp_srt = srt_path + ".audio.tmp"

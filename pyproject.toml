@@ -33,6 +33,7 @@ dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
     "ultralytics>=8.0.0",
+    "tomli-w>=1.0.0",
 ]
 
 [project.optional-dependencies]
