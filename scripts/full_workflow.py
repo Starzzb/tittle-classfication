@@ -146,7 +146,7 @@ def step_vision(csv_path: str, log_path: Path):
 
 
 def step_mux_subtitles(csv_path: str, log_path: Path):
-    """Step 4: 字幕封装到视频"""
+    """Step 6: 字幕封装到视频（覆写原视频）"""
     header = f"\n{'='*60}\n[步骤] 字幕封装\n{'='*60}\n"
     print(header)
     with open(log_path, "a", encoding="utf-8") as f:
@@ -166,7 +166,7 @@ def step_mux_subtitles(csv_path: str, log_path: Path):
 
     muxer = SubtitleMuxer({
         "output_format": "auto",
-        "file_handling": "new",
+        "file_handling": "overwrite",
         "subtitle_processing": "direct",
     })
 
@@ -185,9 +185,23 @@ def step_mux_subtitles(csv_path: str, log_path: Path):
     with open(log_path, "a", encoding="utf-8") as log_f:
         for row in rows:
             original_path = row.get("original_path", "").strip()
+            final_name = row.get("final_name", "").strip()
             srt_path = row.get("srt_path", "").strip()
 
-            if not original_path or not Path(original_path).exists():
+            if not original_path:
+                skipped += 1
+                continue
+
+            # rename 后视频路径已变，用 final_name 构造
+            if final_name:
+                video_file = Path(original_path).parent / f"{final_name}{Path(original_path).suffix}"
+            else:
+                video_file = Path(original_path)
+
+            if not video_file.exists():
+                msg = f"  [跳过] 视频不存在: {video_file.name}\n"
+                print(msg, end="")
+                log_f.write(msg)
                 skipped += 1
                 continue
 
@@ -196,7 +210,7 @@ def step_mux_subtitles(csv_path: str, log_path: Path):
                 continue
 
             VIDEO_EXT = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".m4v", ".ts"}
-            if Path(original_path).suffix.lower() not in VIDEO_EXT:
+            if video_file.suffix.lower() not in VIDEO_EXT:
                 skipped += 1
                 continue
 
@@ -206,36 +220,20 @@ def step_mux_subtitles(csv_path: str, log_path: Path):
                 srt_full = Path(srt_path)
 
             if not srt_full.exists():
-                srt_same_dir = Path(original_path).with_suffix(".srt")
-                if srt_same_dir.exists():
-                    srt_full = srt_same_dir
-                else:
-                    msg = f"  [跳过] SRT 不存在: {srt_full}\n"
-                    print(msg, end="")
-                    log_f.write(msg)
-                    skipped += 1
-                    continue
-
-            VIDEO_OUT_EXT = {".mkv", ".mp4"}
-            existing = [f for f in Path(original_path).parent.iterdir()
-                        if f.is_file() and f.suffix.lower() in VIDEO_OUT_EXT
-                        and Path(original_path).stem in f.name and f != Path(original_path)]
-            if existing:
-                msg = f"  [跳过] 已存在封装文件: {existing[0].name}\n"
+                msg = f"  [跳过] SRT 不存在: {srt_full}\n"
                 print(msg, end="")
                 log_f.write(msg)
                 skipped += 1
                 continue
 
-            result = muxer.mux_subtitle(original_path, str(srt_full))
+            result = muxer.mux_subtitle(str(video_file), str(srt_full))
             if result.get("success"):
-                output = result.get("output_path", "")
-                msg = f"  [完成] {Path(original_path).name} -> {Path(output).name if output else '?'}\n"
+                msg = f"  [完成] {video_file.name} (字幕已嵌入)\n"
                 print(msg, end="")
                 log_f.write(msg)
                 success += 1
             else:
-                msg = f"  [失败] {Path(original_path).name}: {result.get('error', '未知错误')}\n"
+                msg = f"  [失败] {video_file.name}: {result.get('error', '未知错误')}\n"
                 print(msg, end="")
                 log_f.write(msg)
 
@@ -248,7 +246,7 @@ def step_mux_subtitles(csv_path: str, log_path: Path):
 
 
 def step_confirm_all(csv_path: str, log_path: Path):
-    """Step 5: 将所有待确认记录标记为已确认"""
+    """Step 4: 将所有待确认记录标记为已确认"""
     header = f"\n{'='*60}\n[步骤] 确认所有记录\n{'='*60}\n"
     print(header)
     with open(log_path, "a", encoding="utf-8") as f:
@@ -282,7 +280,7 @@ def step_confirm_all(csv_path: str, log_path: Path):
 
 
 def step_rename(csv_path: str, log_path: Path, dry_run: bool = False):
-    """Step 6: 执行重命名"""
+    """Step 5: 执行重命名"""
     mode = "模拟重命名" if dry_run else "执行重命名"
     cmd = [sys.executable, "-m", "title_classifier", "rename", "-c", csv_path]
     if dry_run:
@@ -332,12 +330,15 @@ def main():
     if not args.skip_vision:
         step_vision(csv_path, log_path)
 
-    # Step 4: 字幕封装
+    # Step 4: 确认所有记录
+    step_confirm_all(csv_path, log_path)
+
+    # Step 5: 重命名
+    step_rename(csv_path, log_path, dry_run=args.dry_run)
+
+    # Step 6: 字幕封装（覆写原视频）
     if not args.skip_mux:
         step_mux_subtitles(csv_path, log_path)
-
-    # Step 5: 确认所有记录
-    step_confirm_all(csv_path, log_path)
 
     # Step 6: 重命名
     step_rename(csv_path, log_path, dry_run=args.dry_run)

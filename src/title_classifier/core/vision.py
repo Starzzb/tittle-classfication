@@ -1214,21 +1214,6 @@ Output in Chinese using the exact format specified below.
                 video_path, description, keywords, final_name, video_summary, srt_output_dir
             )
 
-        # 复制SRT到视频所在目录
-        if srt_path and Path(srt_path).exists():
-            video_dir = Path(video_path).parent
-            srt_filename = Path(srt_path).name
-            srt_in_video_dir = video_dir / srt_filename
-            
-            # 如果目标路径与源路径不同，则复制
-            if str(Path(srt_path).resolve()) != str(srt_in_video_dir.resolve()):
-                import shutil
-                try:
-                    shutil.copy2(srt_path, srt_in_video_dir)
-                    logger.info(f"SRT已复制到视频目录: {srt_in_video_dir}")
-                except Exception as e:
-                    logger.warning(f"复制SRT到视频目录失败: {e}")
-
         return {
             "description": description,
             "keywords": keywords,
