@@ -1,6 +1,7 @@
 models/
 logs/
 output/
+data/
 .venv/
 .env
 *.pyc
@@ -9,3 +10,26 @@ _vision_tmp/
 *.pt
 *.egg-info/
 uv.lock
+
+# 测试媒体文件
+test/
+tests/test_audio.py
+
+# 字幕输出
+subtitles/
+
+# API密钥配置
+config/providers.json
+
+# 大文件
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.flv
+*.wmv
+*.webm
+*.m4v
+*.ts
+*.wav
+*.mp3
