@@ -18,8 +18,7 @@ tests/test_audio.py
 # 字幕输出
 subtitles/
 
-# API密钥配置
-config/providers.json
+# API密钥（.env已排除，providers.json是模型配置需保留）
 
 # 大文件
 *.mp4
