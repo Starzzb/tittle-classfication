@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 
 from ..providers import get_provider_config, get_api_key, call_vision_api
-from ..detectors import UHDDetector, YOLODetector, CLIPClassifier
+from ..detectors import YOLODetector, CLIPClassifier
 from ..utils.video import get_video_duration, extract_frame, extract_multiple_frames, detect_keyframes
 from ..utils.image import compress_image, image_to_base64
 from ..utils.stats import TagStatistics
@@ -54,7 +54,6 @@ class VisionProcessor:
         self.model = self.provider_config.get("default_model", "") if self.provider_config else ""
         self.api_key = get_api_key(provider)
 
-        self.uhd_detector = None
         self.yolo_detector = None
         self.clip_classifier = None
         self.tag_stats = None
@@ -63,20 +62,14 @@ class VisionProcessor:
         """初始化检测器"""
         self.tag_stats = TagStatistics()
 
-        if self.use_yolo:
-            # 全面分析模式使用多个模型
-            self.yolo_detector = YOLODetector(
-                model_types=self.yolo_models,
-                confidence=self.yolo_conf,
-            )
-            if not self.yolo_detector.load_model():
-                logger.error("YOLO模型加载失败")
-                return False
-        else:
-            self.uhd_detector = UHDDetector()
-            if not self.uhd_detector.load_model():
-                logger.error("UHD模型加载失败")
-                return False
+        # 始终使用YOLO检测器
+        self.yolo_detector = YOLODetector(
+            model_types=self.yolo_models,
+            confidence=self.yolo_conf,
+        )
+        if not self.yolo_detector.load_model():
+            logger.error("YOLO模型加载失败")
+            return False
 
         if self.use_clip:
             self.clip_classifier = CLIPClassifier(tag_stats=self.tag_stats)
@@ -95,12 +88,8 @@ class VisionProcessor:
         if audio_context:
             logger.info(f"检测到音频上下文，长度: {len(audio_context)} 字符")
 
-        if self.use_yolo and self.yolo_detector:
-            # YOLO全面分析模式
-            return self._process_video_comprehensive(video_path, title, duration, audio_context, subtitle_segments)
-        else:
-            # 传统模式
-            return self._process_video_traditional(video_path, title, duration, audio_context)
+        # 始终使用YOLO全面分析模式
+        return self._process_video_comprehensive(video_path, title, duration, audio_context, subtitle_segments)
 
     def _process_video_comprehensive(self, video_path: str, title: str, duration: float, audio_context: str = "", subtitle_segments: List[Dict] = None) -> Dict:
         """视频全面分析"""
@@ -202,21 +191,15 @@ class VisionProcessor:
         if not frames:
             return {"error": "无法提取帧"}
 
-        yolo_results = []
-        if self.use_yolo and self.yolo_detector:
-            yolo_results = self._analyze_poses(frames)
+        # 始终使用YOLO进行姿态分析
+        yolo_results = self._analyze_poses(frames)
 
         selected_frames = self._select_frames(frames, yolo_results)
-        yolo_context = None
-        if yolo_results:
-            yolo_context = self._build_yolo_context(yolo_results, selected_frames)
+        yolo_context = self._build_yolo_context(yolo_results, selected_frames)
 
         # 如果有音频上下文，添加到yolo_context中
         if audio_context:
-            if yolo_context:
-                yolo_context = f"{yolo_context}\n\n【音频转录内容】\n{audio_context}"
-            else:
-                yolo_context = f"【音频转录内容】\n{audio_context}"
+            yolo_context = f"{yolo_context}\n\n【音频转录内容】\n{audio_context}"
 
         result = self._call_vlm(selected_frames, title, yolo_context)
 
@@ -608,16 +591,10 @@ class VisionProcessor:
                 data = np.fromfile(frame_path, dtype=np.uint8)
                 frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
                 if frame is not None:
-                    if self.use_yolo and self.yolo_detector:
-                        pose_result = self.yolo_detector.estimate_pose(frame)
-                        from ..detectors.yolo import draw_pose_on_frame
-                        annotated = draw_pose_on_frame(frame, pose_result)
-                    elif self.uhd_detector:
-                        det_result = self.uhd_detector.detect(frame)
-                        from ..detectors.uhd import draw_detection_on_frame
-                        annotated = draw_detection_on_frame(frame, det_result)
-                    else:
-                        annotated = frame
+                    # 始终使用YOLO绘制姿态
+                    pose_result = self.yolo_detector.estimate_pose(frame)
+                    from ..detectors.yolo import draw_pose_on_frame
+                    annotated = draw_pose_on_frame(frame, pose_result)
 
                     annotated_dest = detection_dir / f"{stem}_annotated.jpg"
                     cv2.imwrite(str(annotated_dest), annotated)

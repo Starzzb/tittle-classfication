@@ -548,25 +548,15 @@ class TitleClassifierApp(tk.Tk):
         det_frame = ttk.LabelFrame(tab, text="检测器")
         det_frame.pack(fill=tk.X, padx=4, pady=4)
 
-        # 检测器类型选择（UHD或YOLO）
-        self.s1c_detector_var = tk.StringVar(value="yolo")
-        yolo_rb = ttk.Radiobutton(det_frame, text="YOLO姿态检测", variable=self.s1c_detector_var, value="yolo")
-        yolo_rb.pack(side=tk.LEFT, padx=4)
-        ToolTip(yolo_rb, "使用YOLO Pose模型检测人体姿态\n\n"
+        # YOLO检测器说明
+        yolo_label = ttk.Label(det_frame, text="YOLO姿态检测（默认）")
+        yolo_label.pack(side=tk.LEFT, padx=4)
+        ToolTip(yolo_label, "使用YOLO Pose模型检测人体姿态\n\n"
                 "功能：\n"
                 "- 检测视频中是否有人体\n"
                 "- 分析人体姿态（站立、跪姿、弯腰等）\n"
                 "- 智能选择包含人体的代表性帧\n"
-                "- 将姿态信息作为上下文传给VLM\n\n"
-                "适用场景：需要分析视频中人物动作时使用")
-
-        uhd_rb = ttk.Radiobutton(det_frame, text="UHD检测", variable=self.s1c_detector_var, value="uhd")
-        uhd_rb.pack(side=tk.LEFT, padx=4)
-        ToolTip(uhd_rb, "使用UHD模型检测人体\n\n"
-                "功能：\n"
-                "- 检测视频中是否有人体\n"
-                "- 裁剪人体区域用于VLM分析\n\n"
-                "适用场景：不需要姿态分析，只需检测人体时使用")
+                "- 将姿态信息作为上下文传给VLM")
 
         # 全面分析模式选项
         self.s1c_comprehensive_var = tk.BooleanVar(value=False)
@@ -599,7 +589,7 @@ class TitleClassifierApp(tk.Tk):
         self.s1c_analysis_step_var = tk.StringVar(value="2.0")
         step_entry = ttk.Entry(param_frame, textvariable=self.s1c_analysis_step_var, width=6)
         step_entry.pack(side=tk.LEFT, padx=4)
-        ToolTip(step_entry, "YOLO模式下视频采样间隔\n\n"
+        ToolTip(step_entry, "视频采样间隔\n\n"
                 "- 默认2秒取一帧进行分析\n"
                 "- 较小值：分析更细致，但耗时更长\n"
                 "- 较大值：分析更快，但可能遗漏细节\n\n"
@@ -610,8 +600,7 @@ class TitleClassifierApp(tk.Tk):
         frames_entry = ttk.Entry(param_frame, textvariable=self.s1c_vlm_frames_var, width=6)
         frames_entry.pack(side=tk.LEFT, padx=4)
         ToolTip(frames_entry, "传给VLM分析的帧数\n\n"
-                "- YOLO模式：此参数不生效，由采样间隔决定\n"
-                "- UHD模式：均匀采样的帧数（默认10帧）")
+                "此参数由采样间隔决定，通常不需要手动设置")
 
         # 选项
         opt_frame = ttk.LabelFrame(tab, text="选项")
@@ -1490,15 +1479,12 @@ class TitleClassifierApp(tk.Tk):
 
         cmd = [PYTHON, "-m", "title_classifier", "vision", "-c", csv, "-p", provider]
 
-        # 检测器选择
-        detector = self.s1c_detector_var.get()
-        if detector == "yolo":
-            cmd.append("--use-yolo")
-            
-            # 全面分析模式
-            if self.s1c_comprehensive_var.get():
-                cmd.append("--comprehensive")
-        # UHD不需要额外参数，默认使用
+        # 始终使用YOLO
+        cmd.append("--use-yolo")
+        
+        # 全面分析模式
+        if self.s1c_comprehensive_var.get():
+            cmd.append("--comprehensive")
 
         if self.s1c_use_clip_var.get():
             cmd.append("--use-clip")

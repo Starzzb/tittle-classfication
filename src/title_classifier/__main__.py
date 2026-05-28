@@ -195,7 +195,7 @@ def cmd_vision(args):
             video_summary = result.get("video_summary", {})
             if video_summary:
                 rows[row_idx]["human_detected"] = "true" if video_summary.get("has_person") else "false"
-                rows[row_idx]["detection_method"] = "yolo" if args.use_yolo else "uhd"
+                rows[row_idx]["detection_method"] = "yolo"
 
             elapsed = time.time() - start_time
             print(f"  [完成] {elapsed:.1f}秒")
@@ -406,7 +406,7 @@ def main():
     vision_cmd.add_argument("--use-clip", action="store_true", help="使用CLIP预分类")
     vision_cmd.add_argument("--clip-threshold", type=float, default=0.25, help="CLIP置信度阈值")
     vision_cmd.add_argument("--max-image-size", type=int, default=800, help="图片最大尺寸")
-    vision_cmd.add_argument("--vlm-frames", type=int, default=10, help="VLM帧数（UHD模式使用，YOLO模式由采样间隔决定）")
+    vision_cmd.add_argument("--vlm-frames", type=int, default=10, help="VLM帧数（由采样间隔决定）")
     vision_cmd.add_argument("--analysis-step", type=float, default=2.0, help="YOLO模式采样间隔（秒，默认2秒）")
 
     vision_cmd.add_argument("--all", action="store_true", help="处理所有未识别的文件")

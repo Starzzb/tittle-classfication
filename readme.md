@@ -278,7 +278,7 @@ uv run title-classifier gui
 | **Stage1 扫描** | 扫描目录或单个文件，生成待审表 |
 | **Stage1b AI优化** | AI优化标题，支持预览编辑 |
 | **Stage1c 音频识别** | VAD语音分段 + MiMo API语音转录 |
-| **Stage1c 视觉识别** | YOLO/UHD检测 + VLM识别 |
+| **Stage1c 视觉识别** | YOLO检测 + VLM识别 |
 | **Stage2 重命名** | 执行重命名操作 |
 
 ### Stage1 扫描
@@ -333,7 +333,7 @@ min_speech_ratio = 0.4   # 最小语音占比
 
 ### Stage1c 视觉识别
 
-- **检测器选择**：YOLO（默认）或 UHD
+- **检测器选择**：YOLO（默认）
 - **YOLO模型多选**：detect、pose、segment
 - **分析参数**：采样间隔、VLM帧数
 - **选项**：处理所有文件、启用调试模式
@@ -690,7 +690,7 @@ title-classifier/
 │       │
 │       ├── detectors/
 │       │   ├── base.py              # 检测器基类
-│       │   ├── uhd.py               # UHD人体检测
+│       │   ├── uhd.py               # UHD人体检测（已移除）
 │       │   ├── yolo.py              # YOLO检测
 │       │   └── clip.py              # CLIP分类
 │       │
@@ -879,7 +879,7 @@ enabled = false
 
 **重大更新：GUI功能完善**
 - Stage1b：AI优化结果预览表格，支持右键编辑
-- Stage1c：YOLO/UHD检测器选择，YOLO模型多选
+- Stage1c：YOLO检测器，YOLO模型多选
 - Stage2：批量确认、批量清空功能
 
 ### v5.0.0
@@ -892,7 +892,7 @@ enabled = false
 
 ### v4.0.0
 - 支持图片文件（.jpg, .jpeg, .png, .bmp, .webp, .gif, .tiff）
-- 人体检测预处理默认启用（UHD 超轻量模型）
+- 人体检测预处理默认启用（YOLO 模型）
 - 新增智能压缩、水印优先功能
 
 ### v3.0.0
