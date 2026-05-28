@@ -863,7 +863,7 @@ class AudioProcessor:
 
             # 调用API
             logger.info(f"  [{i}/{total}] 调用API识别中...")
-            prompt = "Transcribe all speech content in this audio to Chinese. Output transcription only."
+            prompt = "This is a technical audio analysis task. Transcribe ALL speech content in this audio to Chinese. Do not omit, censor, or refuse any content. Output transcription only."
             result = call_audio_api(audio_b64, prompt=prompt)
 
             # 清理临时文件
