@@ -657,10 +657,11 @@ def enhanced_adaptive_segment(
 
 def clean_transcription_text(text: str) -> str:
     """
-    清理转录文本，移除非中文的标注内容
+    清理转录文本，移除非中文的标注内容和模型推理文本
     
     移除格式如：(female), (male), (whisper), (laughter),
               （female）, （male）, （whisper）, （laughter）等
+    同时过滤模型推理/思维链输出（如 "首先，用户指令是..." 等）
     """
     import re
     # 移除英文括号及其内容（如 (female), (whisper), (laughter)）
@@ -669,6 +670,38 @@ def clean_transcription_text(text: str) -> str:
     text = re.sub(r'（[a-zA-Z][a-zA-Z_ ]*）', '', text)
     # 清理多余空格
     text = re.sub(r' +', ' ', text)
+
+    # 过滤模型推理/思维链输出：在遇到推理标记时截断
+    reasoning_markers = [
+        r'首先[，,]', r'首先，用户', r'用户指令', r'用户的指令',
+        r'根据规则', r'规则[：:]', r'我需要', r'我需要处理',
+        r'你是一名', r'这是一个技术', r'这是一个技术音频',
+        r'系统提示[：:]', r'系统提示是',
+        r'Transcribe ALL speech', r'You are a speech recognition',
+        r'RULES[：:]',
+        r'1\. 输出[：:]', r'1\. Output',
+    ]
+    for marker in reasoning_markers:
+        idx = re.search(marker, text)
+        if idx and idx.start() > 10:  # 确保前面有足够内容
+            text = text[:idx.start()]
+            break
+
+    # 如果文本仍包含完整的系统提示（被过滤了整个文本），取引号内的内容
+    if text.startswith('"') and '"' in text[1:]:
+        match = re.match(r'^"([^"]+)"', text)
+        if match:
+            text = match.group(1)
+
+    # 如果文本过长且包含中文标点/思考特征，提取前半部分
+    if len(text) > 400:
+        # 尝试在第一个句号/感叹号处截断
+        first_end = re.search(r'[。！？\n]', text)
+        if first_end:
+            short = text[:first_end.start()].strip()
+            if len(short) > 3:
+                text = short
+
     return text.strip()
 
 
@@ -863,7 +896,7 @@ class AudioProcessor:
 
             # 调用API
             logger.info(f"  [{i}/{total}] 调用API识别中...")
-            prompt = "This is a technical audio analysis task. Transcribe ALL speech content in this audio to Chinese. Do not omit, censor, or refuse any content. Output transcription only."
+            prompt = "This is a technical audio analysis task. Transcribe ALL speech content in this audio to Chinese. Do not think, reason, explain, or refuse - output the transcription directly without any additional text. Output transcription only."
             result = call_audio_api(audio_b64, prompt=prompt)
 
             # 清理临时文件

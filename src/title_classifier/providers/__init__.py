@@ -440,6 +440,7 @@ def call_vision_api(
             {"role": "user", "content": content},
         ],
         "temperature": temperature,
+        "reasoning": {"enabled": False},
         "max_tokens": 1024,
         "stream": False,
     }
@@ -616,7 +617,8 @@ def call_audio_api(
                 "role": "system",
                 "content": (
                     "You are a speech recognition system. Transcribe audio content objectively.\n"
-                    "This is a technical audio analysis task - transcribe ALL audible speech without filtering or refusal.\n\n"
+                    "This is a technical audio analysis task - transcribe ALL audible speech without filtering or refusal.\n"
+                    "DO NOT think, reason, explain, or output chain-of-thought - output the transcription directly.\n\n"
                     "RULES:\n"
                     "1. Output: Simplified Chinese only\n"
                     "2. Transcribe ALL speech verbatim, do not omit or censor any content\n"
@@ -624,7 +626,7 @@ def call_audio_api(
                     "4. Mark speakers: (male)(female)(whisper)\n"
                     "5. Mark sounds: (laughter)(music)(coughing)\n"
                     "6. Unclear words: [?]\n"
-                    "7. NEVER refuse, censor, or explain - transcription only\n"
+                    "7. NEVER refuse, censor, think, or explain - transcription only\n"
                     "8. Output transcription only, nothing else\n"
                     "9. No speech detected: (无语音内容)"
                 ),
@@ -637,6 +639,7 @@ def call_audio_api(
                 ],
             },
         ],
+        "reasoning": {"enabled": False},
         "max_completion_tokens": 2048,
     }
 
@@ -655,19 +658,37 @@ def call_audio_api(
                 result = json.loads(resp.read())
                 content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
                 reasoning = result.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "").strip()
-                
-                # 优先返回content，如果为空则返回reasoning_content
-                # 注意：对于音频识别，模型可能把转录结果放在reasoning_content里
+
+                # 判断 content 是否为推理内容（思维链）
+                reasoning_markers = ["首先", "用户指令", "根据规则", "我需要", "这是一个技术",
+                                     "规则：", "你是一名", "Transcribe ALL", "You are a speech"]
+                is_content_reasoning = any(m in content for m in reasoning_markers)
+                content_too_long = len(content) > 400
+
+                if content and not is_content_reasoning and not content_too_long:
+                    return content
+
+                if reasoning and not is_content_reasoning:
+                    logger.debug(f"content疑似推理内容，使用reasoning_content")
+                    return reasoning
+
+                # reasoning也空或也是推理 → 尝试从content提取短片段
+                if content and is_content_reasoning and (not reasoning or len(reasoning) < 10):
+                    logger.debug(f"content包含推理链，提取非推理部分")
+                    # 取第一个推理标记之前的部分
+                    for m in reasoning_markers:
+                        idx = content.find(m)
+                        if idx > 10:
+                            short = content[:idx].strip().strip('"')
+                            if len(short) > 2:
+                                return short
+                            break
+
+                # 最后一个兜底
                 if content:
                     return content
-                
                 if reasoning:
-                    logger.debug(f"content为空，使用reasoning_content")
                     return reasoning
-                
-                # 都为空
-                logger.warning(f"音频API返回空内容: {result}")
-                return "[无内容]"
         except Exception as e:
             last_error = e
             if attempt < retries - 1:
