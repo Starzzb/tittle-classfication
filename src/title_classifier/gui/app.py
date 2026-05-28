@@ -104,7 +104,7 @@ class TitleClassifierApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("视频标题分类工具 v7.1")
+        self.title("视频标题分类工具 v7.2")
         self.geometry("900x850")
         self.minsize(800, 700)
 
@@ -567,6 +567,19 @@ class TitleClassifierApp(tk.Tk):
                 "- 检测视频中是否有人体\n"
                 "- 裁剪人体区域用于VLM分析\n\n"
                 "适用场景：不需要姿态分析，只需检测人体时使用")
+
+        # 全面分析模式选项
+        self.s1c_comprehensive_var = tk.BooleanVar(value=False)
+        comprehensive_cb = ttk.Checkbutton(det_frame, text="全面分析模式", variable=self.s1c_comprehensive_var)
+        comprehensive_cb.pack(side=tk.LEFT, padx=8)
+        ToolTip(comprehensive_cb, "使用三个YOLO模型进行全面分析\n\n"
+                "功能：\n"
+                "- 同时使用detect、pose、segment三个模型\n"
+                "- 投票决策：至少两个模型检测到人体才认为有人体\n"
+                "- 动态权重：根据置信度自动调整模型权重\n"
+                "- 提供姿态分析、穿着分割等详细信息\n\n"
+                "适用场景：需要更全面、准确的视频分析时使用\n"
+                "注意：全面分析模式会使用更多GPU内存和时间")
 
         # CLIP选项
         self.s1c_use_clip_var = tk.BooleanVar()
@@ -1481,6 +1494,10 @@ class TitleClassifierApp(tk.Tk):
         detector = self.s1c_detector_var.get()
         if detector == "yolo":
             cmd.append("--use-yolo")
+            
+            # 全面分析模式
+            if self.s1c_comprehensive_var.get():
+                cmd.append("--comprehensive")
         # UHD不需要额外参数，默认使用
 
         if self.s1c_use_clip_var.get():

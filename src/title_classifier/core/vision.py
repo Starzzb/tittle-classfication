@@ -29,6 +29,7 @@ class VisionProcessor:
         provider: str = "gcli",
         use_yolo: bool = False,
         yolo_model: str = "pose",
+        yolo_models: List[str] = None,
         yolo_conf: float = 0.5,
         use_clip: bool = False,
         clip_threshold: float = 0.25,
@@ -39,7 +40,8 @@ class VisionProcessor:
     ):
         self.provider = provider
         self.use_yolo = use_yolo
-        self.yolo_model = yolo_model  # 固定使用pose模型
+        self.yolo_model = yolo_model  # 基础模式使用的模型
+        self.yolo_models = yolo_models or ["pose"]  # 全面分析模式使用的模型列表
         self.yolo_conf = yolo_conf
         self.use_clip = use_clip
         self.clip_threshold = clip_threshold
@@ -62,8 +64,9 @@ class VisionProcessor:
         self.tag_stats = TagStatistics()
 
         if self.use_yolo:
+            # 全面分析模式使用多个模型
             self.yolo_detector = YOLODetector(
-                model_type=self.yolo_model,
+                model_types=self.yolo_models,
                 confidence=self.yolo_conf,
             )
             if not self.yolo_detector.load_model():
@@ -225,7 +228,7 @@ class VisionProcessor:
         }
 
     def _analyze_video_comprehensive(self, video_path: str, duration: float) -> Dict:
-        """全面分析视频 - 高密度采样"""
+        """全面分析视频 - 高密度采样，使用多个YOLO模型"""
         tmp_dir = Path("logs/_vision_tmp") / Path(video_path).stem
         tmp_dir.mkdir(parents=True, exist_ok=True)
         frames = []
@@ -236,7 +239,7 @@ class VisionProcessor:
         if len(timestamps) > 50:  # 限制最大采样数
             timestamps = np.linspace(0, duration, 50)
 
-        logger.info(f"全面分析: {len(timestamps)}个采样点")
+        logger.info(f"全面分析: {len(timestamps)}个采样点, 模型: {self.yolo_models}")
 
         for i, ts in enumerate(timestamps):
             # 提取帧
@@ -247,22 +250,26 @@ class VisionProcessor:
 
             frames.append(frame_path)
 
-            # YOLO分析
+            # YOLO全面分析（使用多个模型）
             data = np.fromfile(frame_path, dtype=np.uint8)
             frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
 
             if frame is not None and self.yolo_detector:
-                pose_result = self.yolo_detector.estimate_pose(frame)
+                comprehensive_result = self.yolo_detector.analyze_comprehensive(frame)
 
                 timeline_entry = {
                     "index": i,
                     "timestamp": ts,
                     "frame_path": frame_path,
-                    "has_person": pose_result.get("has_person", False),
-                    "confidence": pose_result.get("max_confidence", 0),
+                    "has_person": comprehensive_result.get("has_person", False),
+                    "confidence": comprehensive_result.get("confidence", 0),
+                    "models_used": comprehensive_result.get("models_used", []),
+                    "vote_count": comprehensive_result.get("merged", {}).get("vote_count", 0),
                 }
 
-                if pose_result.get("has_person") and pose_result.get("poses"):
+                # 提取姿态信息
+                pose_result = comprehensive_result.get("pose")
+                if pose_result and pose_result.get("has_person") and pose_result.get("poses"):
                     best_pose = pose_result["poses"][0]
                     timeline_entry["pose_analysis"] = best_pose.get("pose_analysis", [])
                     timeline_entry["visible_keypoints"] = best_pose.get("visible_count", 0)
@@ -271,6 +278,27 @@ class VisionProcessor:
                     timeline_entry["pose_analysis"] = []
                     timeline_entry["visible_keypoints"] = 0
                     timeline_entry["keypoints"] = {}
+
+                # 提取检测信息
+                detection_result = comprehensive_result.get("detection")
+                if detection_result and detection_result.get("has_person"):
+                    timeline_entry["detection_details"] = detection_result.get("persons", [])
+                else:
+                    timeline_entry["detection_details"] = []
+
+                # 提取分割信息
+                segment_result = comprehensive_result.get("segment")
+                if segment_result and segment_result.get("has_person"):
+                    timeline_entry["segment_details"] = segment_result.get("segments", [])
+                    # 提取穿着分析
+                    if segment_result.get("segments"):
+                        best_segment = segment_result["segments"][0]
+                        timeline_entry["wearing_analysis"] = best_segment.get("wearing_analysis", {})
+                    else:
+                        timeline_entry["wearing_analysis"] = {}
+                else:
+                    timeline_entry["segment_details"] = []
+                    timeline_entry["wearing_analysis"] = {}
 
                 timeline.append(timeline_entry)
 
@@ -291,7 +319,7 @@ class VisionProcessor:
         }
 
     def _generate_video_summary(self, timeline: List[Dict], duration: float) -> Dict:
-        """生成视频摘要"""
+        """生成视频摘要（包含多模型统计）"""
         frames_with_person = [t for t in timeline if t.get("has_person")]
 
         if not frames_with_person:
@@ -342,6 +370,20 @@ class VisionProcessor:
         avg_confidence = sum(t.get("confidence", 0) for t in frames_with_person) / len(frames_with_person)
         avg_keypoints = sum(t.get("visible_keypoints", 0) for t in frames_with_person) / len(frames_with_person)
 
+        # 多模型统计
+        models_used = set()
+        vote_counts = []
+        wearing_stats = []
+        for t in frames_with_person:
+            models_used.update(t.get("models_used", []))
+            vote_counts.append(t.get("vote_count", 0))
+            wearing = t.get("wearing_analysis", {})
+            if wearing.get("has_wearing"):
+                wearing_stats.append(wearing.get("color_variance", 0))
+
+        avg_vote = sum(vote_counts) / len(vote_counts) if vote_counts else 0
+        avg_wearing_variance = sum(wearing_stats) / len(wearing_stats) if wearing_stats else 0
+
         return {
             "has_person": True,
             "duration": duration,
@@ -354,6 +396,9 @@ class VisionProcessor:
             "avg_keypoints": avg_keypoints,
             "first_appearance": frames_with_person[0]["timestamp"],
             "last_appearance": frames_with_person[-1]["timestamp"],
+            "models_used": list(models_used),
+            "avg_vote": avg_vote,
+            "avg_wearing_variance": avg_wearing_variance,
         }
 
     def _select_representative_frames(self, timeline: List[Dict], max_frames: int = 10) -> List[int]:
@@ -407,7 +452,7 @@ class VisionProcessor:
         return selected[:max_frames]
 
     def _generate_frame_descriptions(self, timeline: List[Dict], selected_indices: List[int]) -> List[str]:
-        """为选中帧生成描述"""
+        """为选中帧生成描述（包含多个模型的结果）"""
         descriptions = []
 
         for i, idx in enumerate(selected_indices):
@@ -417,15 +462,41 @@ class VisionProcessor:
             t = timeline[idx]
             ts = t.get("timestamp", 0)
             has_person = t.get("has_person", False)
+            models_used = t.get("models_used", [])
+            vote_count = t.get("vote_count", 0)
 
             if has_person:
+                desc_parts = [f"图{i+1}@{ts:.1f}s:"]
+                
+                # 检测结果
+                detection_details = t.get("detection_details", [])
+                if detection_details:
+                    det_conf = max(d.get("confidence", 0) for d in detection_details)
+                    desc_parts.append(f"[检测]置信度={det_conf:.2f}")
+                
+                # 姿态结果
                 poses = t.get("pose_analysis", [])
-                conf = t.get("confidence", 0)
                 kpts = t.get("visible_keypoints", 0)
-                pose_str = ", ".join(poses) if poses else "未知姿态"
-                desc = f"图{i+1}@{ts:.1f}s: 人体检测, 姿态={pose_str}, 置信度={conf:.2f}, 关键点={kpts}/17"
+                if poses:
+                    pose_str = ", ".join(poses)
+                    desc_parts.append(f"[姿态]{pose_str}, 关键点={kpts}/17")
+                
+                # 分割结果
+                wearing = t.get("wearing_analysis", {})
+                segment_details = t.get("segment_details", [])
+                if segment_details:
+                    seg_conf = max(s.get("confidence", 0) for s in segment_details)
+                    desc_parts.append(f"[分割]置信度={seg_conf:.2f}")
+                    if wearing.get("has_wearing"):
+                        color_var = wearing.get("color_variance", 0)
+                        desc_parts.append(f"穿着色彩变化={color_var:.1f}")
+                
+                # 投票信息
+                desc_parts.append(f"投票={vote_count}/{len(models_used)}")
+                
+                desc = " ".join(desc_parts)
             else:
-                desc = f"图{i+1}@{ts:.1f}s: 未检测到人体"
+                desc = f"图{i+1}@{ts:.1f}s: 未检测到人体 (投票={vote_count}/{len(models_used)})"
 
             descriptions.append(desc)
 
@@ -434,7 +505,7 @@ class VisionProcessor:
     def _build_comprehensive_context(
         self, video_summary: Dict, frame_descriptions: List[str], n_frames: int
     ) -> str:
-        """构建全面上下文"""
+        """构建全面上下文（包含多模型信息）"""
         context_lines = []
 
         if video_summary.get("has_person"):
@@ -442,6 +513,12 @@ class VisionProcessor:
             context_lines.append(f"- 视频时长: {video_summary.get('duration', 0):.1f}秒")
             context_lines.append(f"- 人体出现比例: {video_summary.get('person_ratio', 0) * 100:.1f}%")
             context_lines.append(f"- 主要姿态: {', '.join(video_summary.get('main_pose', ['未知']))}")
+            
+            # 多模型信息
+            models_used = video_summary.get("models_used", [])
+            if models_used:
+                context_lines.append(f"- 使用模型: {', '.join(models_used)}")
+                context_lines.append(f"- 平均投票数: {video_summary.get('avg_vote', 0):.1f}/{len(models_used)}")
 
             # 姿态分布
             pose_dist = video_summary.get("pose_distribution", {})
@@ -468,6 +545,11 @@ class VisionProcessor:
             # 统计信息
             context_lines.append(f"- 平均置信度: {video_summary.get('avg_confidence', 0):.2f}")
             context_lines.append(f"- 平均可见关键点: {video_summary.get('avg_keypoints', 0):.1f}/17")
+            
+            # 穿着分析
+            avg_wearing_variance = video_summary.get("avg_wearing_variance", 0)
+            if avg_wearing_variance > 0:
+                context_lines.append(f"- 穿着色彩变化: {avg_wearing_variance:.1f}")
 
             context_lines.append("")
             context_lines.append("【各帧详细分析（图片序号对应下方描述）】")

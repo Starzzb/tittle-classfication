@@ -83,11 +83,23 @@ def cmd_vision(args):
         Path(debug_dir).mkdir(parents=True, exist_ok=True)
         print(f"[调试模式] 调试数据将保存到: {debug_dir}")
 
-    # 初始化处理器（YOLO模式固定使用pose模型）
+    # 确定YOLO模型列表
+    if args.use_yolo and args.comprehensive:
+        # 全面分析模式：使用三个模型
+        yolo_models = ["detect", "pose", "segment"]
+        print("[全面分析模式] 使用三个YOLO模型: detect, pose, segment")
+    elif args.use_yolo:
+        # 基础YOLO模式：只使用pose模型
+        yolo_models = ["pose"]
+    else:
+        yolo_models = ["pose"]
+
+    # 初始化处理器
     processor = VisionProcessor(
         provider=args.provider,
         use_yolo=args.use_yolo,
         yolo_model="pose" if args.use_yolo else "detect",
+        yolo_models=yolo_models,
         yolo_conf=args.yolo_conf,
         use_clip=args.use_clip,
         clip_threshold=args.clip_threshold,
@@ -389,6 +401,7 @@ def main():
     vision_cmd.add_argument("-c", "--csv", default="data/output/title_review.csv", help="CSV文件路径")
     vision_cmd.add_argument("-p", "--provider", default="gcli", help="AI Provider")
     vision_cmd.add_argument("--use-yolo", action="store_true", help="使用YOLO姿态检测（分析人体姿态，智能选择代表性帧）")
+    vision_cmd.add_argument("--comprehensive", action="store_true", help="全面分析模式（使用detect/pose/segment三个模型，投票决策）")
     vision_cmd.add_argument("--yolo-conf", type=float, default=0.5, help="YOLO置信度阈值")
     vision_cmd.add_argument("--use-clip", action="store_true", help="使用CLIP预分类")
     vision_cmd.add_argument("--clip-threshold", type=float, default=0.25, help="CLIP置信度阈值")

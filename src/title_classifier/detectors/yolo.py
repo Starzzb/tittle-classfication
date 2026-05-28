@@ -1,8 +1,8 @@
-"""YOLOv8检测器 - 姿态检测专用"""
+"""YOLOv8检测器 - 支持多模型（detect/pose/segment）"""
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 
 import cv2
 import numpy as np
@@ -13,7 +13,11 @@ logger = logging.getLogger(__name__)
 
 # YOLO 模型配置
 YOLO_MODEL_DIR = Path(__file__).parent.parent.parent.parent / "models" / "yolo"
-YOLO_POSE_MODEL = YOLO_MODEL_DIR / "yolov8n-pose.pt"
+YOLO_MODELS = {
+    "detect": YOLO_MODEL_DIR / "yolov8n.pt",
+    "pose": YOLO_MODEL_DIR / "yolov8n-pose.pt",
+    "segment": YOLO_MODEL_DIR / "yolov8n-seg.pt",
+}
 
 # COCO 数据集人体类别 ID
 PERSON_CLASS_ID = 0
@@ -28,20 +32,32 @@ KEYPOINT_NAMES = [
 
 
 class YOLODetector(BaseDetector):
-    """YOLOv8姿态检测器"""
+    """YOLOv8检测器 - 支持多模型"""
 
     def __init__(
         self,
-        model_type: str = "pose",
+        model_types: List[str] = None,
         device: str = None,
         confidence: float = 0.5,
         iou_threshold: float = 0.45,
+        parallel_loading: bool = True,
     ):
+        """
+        初始化YOLO检测器
+        
+        Args:
+            model_types: 模型类型列表，可选 "detect", "pose", "segment"
+            device: 推理设备 (cuda/cpu)
+            confidence: 置信度阈值
+            iou_threshold: IoU阈值
+            parallel_loading: 是否并行加载模型
+        """
         super().__init__(confidence)
-        self.model_type = "pose"  # 固定使用pose模型
+        self.model_types = model_types or ["pose"]
         self.iou_threshold = iou_threshold
         self.device = device or self._detect_device()
-        self._yolo_model = None
+        self.parallel_loading = parallel_loading
+        self._models = {}  # 存储多个模型 {model_type: model}
 
     def _detect_device(self) -> str:
         """自动检测推理设备"""
@@ -60,41 +76,63 @@ class YOLODetector(BaseDetector):
             return "cpu"
 
     def load_model(self) -> bool:
-        """加载YOLO姿态模型"""
+        """加载YOLO模型"""
         if self._loaded:
             return True
 
         try:
             from ultralytics import YOLO
 
-            model_path = YOLO_POSE_MODEL
-            logger.info(f"加载YOLO姿态模型: {model_path} (设备: {self.device})")
+            loaded_count = 0
+            for model_type in self.model_types:
+                if model_type not in YOLO_MODELS:
+                    logger.warning(f"未知的模型类型: {model_type}，跳过")
+                    continue
 
-            if not model_path.exists():
-                logger.error(f"YOLO模型文件不存在: {model_path}")
+                model_path = YOLO_MODELS[model_type]
+                logger.info(f"加载YOLO {model_type} 模型: {model_path} (设备: {self.device})")
+
+                if not model_path.exists():
+                    logger.error(f"YOLO模型文件不存在: {model_path}")
+                    continue
+
+                try:
+                    model = YOLO(str(model_path))
+                    if self.device == "cuda":
+                        model.to("cuda")
+                    self._models[model_type] = model
+                    loaded_count += 1
+                    logger.info(f"YOLO {model_type} 模型加载完成")
+                except Exception as e:
+                    logger.error(f"YOLO {model_type} 模型加载失败: {e}")
+
+            if loaded_count > 0:
+                self._loaded = True
+                logger.info(f"成功加载 {loaded_count}/{len(self.model_types)} 个YOLO模型")
+                return True
+            else:
+                logger.error("没有成功加载任何YOLO模型")
                 return False
-
-            self._yolo_model = YOLO(str(model_path))
-
-            if self.device == "cuda":
-                self._yolo_model.to("cuda")
-
-            self._loaded = True
-            logger.info("YOLO姿态模型加载完成")
-            return True
 
         except Exception as e:
             logger.error(f"YOLO模型加载失败: {e}")
             return False
 
     def detect(self, frame: np.ndarray) -> Dict[str, Any]:
-        """检测帧中的人体"""
+        """检测帧中的人体（使用detect模型）"""
         if not self._loaded:
             if not self.load_model():
                 return {"has_person": False, "persons": [], "max_confidence": 0.0}
 
+        # 优先使用detect模型，如果没有则使用pose模型
+        model_type = "detect" if "detect" in self._models else "pose"
+        if model_type not in self._models:
+            logger.error("没有可用的检测模型")
+            return {"has_person": False, "persons": [], "max_confidence": 0.0}
+
         try:
-            results = self._yolo_model(
+            model = self._models[model_type]
+            results = model(
                 frame, conf=self.confidence, iou=self.iou_threshold, verbose=False
             )
 
@@ -123,6 +161,7 @@ class YOLODetector(BaseDetector):
                         "bbox": [cx, cy, w, h],
                         "bbox_pixel": [x1, y1, x2, y2],
                         "confidence": conf,
+                        "model": model_type,
                     })
 
                     if conf > max_conf:
@@ -132,6 +171,7 @@ class YOLODetector(BaseDetector):
                 "has_person": len(persons) > 0,
                 "persons": persons,
                 "max_confidence": max_conf,
+                "model": model_type,
             }
 
         except Exception as e:
@@ -139,13 +179,18 @@ class YOLODetector(BaseDetector):
             return {"has_person": False, "persons": [], "max_confidence": 0.0}
 
     def estimate_pose(self, frame: np.ndarray) -> Dict[str, Any]:
-        """估计人体姿态"""
+        """估计人体姿态（使用pose模型）"""
         if not self._loaded:
             if not self.load_model():
                 return {"has_person": False, "poses": [], "max_confidence": 0.0}
 
+        if "pose" not in self._models:
+            logger.error("pose模型未加载")
+            return {"has_person": False, "poses": [], "max_confidence": 0.0}
+
         try:
-            results = self._yolo_model(
+            model = self._models["pose"]
+            results = model(
                 frame, conf=self.confidence, iou=self.iou_threshold, verbose=False
             )
 
@@ -204,6 +249,7 @@ class YOLODetector(BaseDetector):
                         "avg_confidence": avg_conf,
                         "visible_count": len(valid_kpts),
                         "pose_analysis": pose_analysis,
+                        "model": "pose",
                     }
 
                     poses.append(pose_info)
@@ -215,11 +261,258 @@ class YOLODetector(BaseDetector):
                 "has_person": len(poses) > 0,
                 "poses": poses,
                 "max_confidence": max_conf,
+                "model": "pose",
             }
 
         except Exception as e:
             logger.error(f"YOLO姿态估计失败: {e}")
             return {"has_person": False, "poses": [], "max_confidence": 0.0}
+
+    def segment_instances(self, frame: np.ndarray) -> Dict[str, Any]:
+        """实例分割（使用segment模型）"""
+        if not self._loaded:
+            if not self.load_model():
+                return {"has_person": False, "segments": [], "max_confidence": 0.0}
+
+        if "segment" not in self._models:
+            logger.error("segment模型未加载")
+            return {"has_person": False, "segments": [], "max_confidence": 0.0}
+
+        try:
+            model = self._models["segment"]
+            results = model(
+                frame, conf=self.confidence, iou=self.iou_threshold, verbose=False
+            )
+
+            segments = []
+            max_conf = 0.0
+
+            for result in results:
+                if result.masks is None or result.boxes is None:
+                    continue
+
+                for i, (mask, box) in enumerate(zip(result.masks, result.boxes)):
+                    if int(box.cls[0]) != PERSON_CLASS_ID:
+                        continue
+
+                    conf = float(box.conf[0])
+                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                    h_img, w_img = frame.shape[:2]
+
+                    # 获取掩码
+                    mask_data = mask.data[0].cpu().numpy()
+                    
+                    # 计算掩码面积比例
+                    mask_area = np.sum(mask_data > 0.5)
+                    total_area = h_img * w_img
+                    mask_ratio = mask_area / total_area if total_area > 0 else 0
+
+                    # 分析穿着（基于掩码区域的颜色分布）
+                    wearing_analysis = analyze_wearing_from_mask(frame, mask_data)
+
+                    segment_info = {
+                        "bbox": [
+                            (x1 + x2) / 2 / w_img,
+                            (y1 + y2) / 2 / h_img,
+                            (x2 - x1) / w_img,
+                            (y2 - y1) / h_img,
+                        ],
+                        "bbox_pixel": [x1, y1, x2, y2],
+                        "confidence": conf,
+                        "mask_ratio": mask_ratio,
+                        "wearing_analysis": wearing_analysis,
+                        "model": "segment",
+                    }
+
+                    segments.append(segment_info)
+
+                    if conf > max_conf:
+                        max_conf = conf
+
+            return {
+                "has_person": len(segments) > 0,
+                "segments": segments,
+                "max_confidence": max_conf,
+                "model": "segment",
+            }
+
+        except Exception as e:
+            logger.error(f"YOLO分割失败: {e}")
+            return {"has_person": False, "segments": [], "max_confidence": 0.0}
+
+    def analyze_comprehensive(self, frame: np.ndarray) -> Dict[str, Any]:
+        """
+        全面分析帧 - 使用所有可用模型
+        
+        Returns:
+            {
+                "has_person": bool,
+                "detection": dict,  # detect模型结果
+                "pose": dict,       # pose模型结果
+                "segment": dict,    # segment模型结果
+                "merged": dict,     # 合并后的结果
+                "confidence": float, # 加权置信度
+                "models_used": list, # 使用的模型列表
+            }
+        """
+        if not self._loaded:
+            if not self.load_model():
+                return {
+                    "has_person": False,
+                    "detection": None,
+                    "pose": None,
+                    "segment": None,
+                    "merged": None,
+                    "confidence": 0.0,
+                    "models_used": [],
+                }
+
+        results = {
+            "has_person": False,
+            "detection": None,
+            "pose": None,
+            "segment": None,
+            "merged": None,
+            "confidence": 0.0,
+            "models_used": [],
+        }
+
+        # 并行运行三个模型
+        if "detect" in self._models:
+            try:
+                results["detection"] = self.detect(frame)
+                results["models_used"].append("detect")
+            except Exception as e:
+                logger.warning(f"detect模型推理失败: {e}")
+
+        if "pose" in self._models:
+            try:
+                results["pose"] = self.estimate_pose(frame)
+                results["models_used"].append("pose")
+            except Exception as e:
+                logger.warning(f"pose模型推理失败: {e}")
+
+        if "segment" in self._models:
+            try:
+                results["segment"] = self.segment_instances(frame)
+                results["models_used"].append("segment")
+            except Exception as e:
+                logger.warning(f"segment模型推理失败: {e}")
+
+        # 合并结果
+        results["merged"] = self._merge_results(
+            results["detection"],
+            results["pose"],
+            results["segment"]
+        )
+
+        # 计算加权置信度
+        results["confidence"] = self._calculate_weighted_confidence(
+            results["detection"],
+            results["pose"],
+            results["segment"]
+        )
+
+        # 判断是否有人体
+        results["has_person"] = results["merged"].get("has_person", False)
+
+        return results
+
+    def _merge_results(
+        self,
+        detection: Optional[Dict],
+        pose: Optional[Dict],
+        segment: Optional[Dict],
+    ) -> Dict[str, Any]:
+        """
+        合并三个模型的结果
+        
+        Args:
+            detection: detect模型结果
+            pose: pose模型结果
+            segment: segment模型结果
+            
+        Returns:
+            合并后的结果
+        """
+        merged = {
+            "has_person": False,
+            "persons": [],
+            "poses": [],
+            "segments": [],
+            "detection_details": [],
+            "pose_details": [],
+            "segment_details": [],
+        }
+
+        # 收集有人体的结果
+        if detection and detection.get("has_person"):
+            merged["has_person"] = True
+            merged["persons"] = detection.get("persons", [])
+            merged["detection_details"] = detection.get("persons", [])
+
+        if pose and pose.get("has_person"):
+            merged["has_person"] = True
+            merged["poses"] = pose.get("poses", [])
+            merged["pose_details"] = pose.get("poses", [])
+
+        if segment and segment.get("has_person"):
+            merged["has_person"] = True
+            merged["segments"] = segment.get("segments", [])
+            merged["segment_details"] = segment.get("segments", [])
+
+        # 投票决策：至少两个模型检测到人体才认为有人体
+        vote_count = sum([
+            1 if detection and detection.get("has_person") else 0,
+            1 if pose and pose.get("has_person") else 0,
+            1 if segment and segment.get("has_person") else 0,
+        ])
+        merged["vote_count"] = vote_count
+        merged["vote_result"] = vote_count >= 2
+
+        return merged
+
+    def _calculate_weighted_confidence(
+        self,
+        detection: Optional[Dict],
+        pose: Optional[Dict],
+        segment: Optional[Dict],
+    ) -> float:
+        """
+        计算加权置信度（根据置信度动态调整权重）
+        
+        Args:
+            detection: detect模型结果
+            pose: pose模型结果
+            segment: segment模型结果
+            
+        Returns:
+            加权置信度
+        """
+        confidences = []
+        
+        if detection and detection.get("has_person"):
+            confidences.append(detection.get("max_confidence", 0.0))
+        
+        if pose and pose.get("has_person"):
+            confidences.append(pose.get("max_confidence", 0.0))
+        
+        if segment and segment.get("has_person"):
+            confidences.append(segment.get("max_confidence", 0.0))
+
+        if not confidences:
+            return 0.0
+
+        # 动态权重：根据置信度分配权重
+        total_conf = sum(confidences)
+        if total_conf == 0:
+            return 0.0
+
+        # 加权平均
+        weights = [c / total_conf for c in confidences]
+        weighted_conf = sum(c * w for c, w in zip(confidences, weights))
+
+        return weighted_conf
 
     def detect_and_crop(self, frame: np.ndarray, padding: float = 0.15) -> Dict[str, Any]:
         """检测并裁剪人体区域"""
@@ -300,6 +593,54 @@ def analyze_pose_for_vlm(keypoints: dict) -> list:
     return analysis
 
 
+def analyze_wearing_from_mask(frame: np.ndarray, mask: np.ndarray) -> Dict[str, Any]:
+    """
+    基于掩码分析穿着
+    
+    Args:
+        frame: 原始帧
+        mask: 人体掩码
+        
+    Returns:
+        穿着分析结果
+    """
+    try:
+        # 将掩码转换为二值图
+        mask_binary = (mask > 0.5).astype(np.uint8)
+        
+        # 提取人体区域
+        h, w = frame.shape[:2]
+        mask_resized = cv2.resize(mask_binary, (w, h), interpolation=cv2.INTER_NEAREST)
+        
+        # 计算掩码区域的颜色分布
+        mask_bool = mask_resized > 0
+        if not np.any(mask_bool):
+            return {"has_wearing": False}
+        
+        # 提取人体区域的颜色
+        body_region = frame[mask_bool]
+        
+        # 计算平均颜色
+        avg_color = np.mean(body_region, axis=0)
+        
+        # 计算颜色方差（用于判断是否有多彩衣物）
+        color_std = np.std(body_region, axis=0)
+        
+        # 简单的穿着分析
+        wearing_analysis = {
+            "has_wearing": True,
+            "avg_color_bgr": avg_color.tolist(),
+            "color_std": color_std.tolist(),
+            "color_variance": float(np.mean(color_std)),
+        }
+        
+        return wearing_analysis
+        
+    except Exception as e:
+        logger.warning(f"穿着分析失败: {e}")
+        return {"has_wearing": False}
+
+
 def draw_pose_on_frame(frame: np.ndarray, pose_result: Dict) -> np.ndarray:
     """在帧上绘制姿态检测结果"""
     annotated = frame.copy()
@@ -357,10 +698,80 @@ def draw_pose_on_frame(frame: np.ndarray, pose_result: Dict) -> np.ndarray:
     return annotated
 
 
+def draw_comprehensive_on_frame(frame: np.ndarray, comprehensive_result: Dict) -> np.ndarray:
+    """
+    在帧上绘制全面分析结果
+    
+    Args:
+        frame: 原始帧
+        comprehensive_result: 全面分析结果
+        
+    Returns:
+        标注后的帧
+    """
+    annotated = frame.copy()
+    
+    if not comprehensive_result.get("has_person"):
+        return annotated
+    
+    # 绘制检测结果（红色边框）
+    detection = comprehensive_result.get("detection")
+    if detection and detection.get("has_person"):
+        for person in detection.get("persons", []):
+            if "bbox_pixel" in person:
+                x1, y1, x2, y2 = [int(v) for v in person["bbox_pixel"]]
+                conf = person.get("confidence", 0)
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                cv2.putText(annotated, f"Det {conf:.2f}", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+    
+    # 绘制姿态结果（绿色边框+关键点）
+    pose = comprehensive_result.get("pose")
+    if pose and pose.get("has_person"):
+        for pose_info in pose.get("poses", []):
+            bbox = pose_info.get("bbox")
+            if bbox and "bbox_pixel" in bbox:
+                x1, y1, x2, y2 = [int(v) for v in bbox["bbox_pixel"]]
+                conf = bbox.get("confidence", 0)
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(annotated, f"Pose {conf:.2f}", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            
+            # 绘制关键点
+            for kpt in pose_info.get("keypoints", []):
+                if kpt.get("visible") and kpt.get("confidence", 0) > 0.5:
+                    x, y = int(kpt["x"]), int(kpt["y"])
+                    cv2.circle(annotated, (x, y), 3, (0, 255, 0), -1)
+    
+    # 绘制分割结果（蓝色边框）
+    segment = comprehensive_result.get("segment")
+    if segment and segment.get("has_person"):
+        for seg_info in segment.get("segments", []):
+            if "bbox_pixel" in seg_info:
+                x1, y1, x2, y2 = [int(v) for v in seg_info["bbox_pixel"]]
+                conf = seg_info.get("confidence", 0)
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                cv2.putText(annotated, f"Seg {conf:.2f}", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+    
+    # 显示投票结果
+    merged = comprehensive_result.get("merged", {})
+    vote_count = merged.get("vote_count", 0)
+    vote_result = merged.get("vote_result", False)
+    confidence = comprehensive_result.get("confidence", 0)
+    
+    status_text = f"Vote: {vote_count}/3, Conf: {confidence:.2f}"
+    color = (0, 255, 0) if vote_result else (0, 0, 255)
+    cv2.putText(annotated, status_text, (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+    
+    return annotated
+
+
 # 保持向后兼容
 def detect_human_yolo(frame_path: str, model_type: str = "pose", conf_threshold: float = 0.5) -> Dict:
     """检测人体（向后兼容）"""
-    detector = YOLODetector(model_type=model_type, confidence=conf_threshold)
+    detector = YOLODetector(model_types=[model_type], confidence=conf_threshold)
     return detector.detect_from_file(frame_path)
 
 
@@ -375,7 +786,7 @@ def find_human_frame_yolo(
     import subprocess
     import hashlib
 
-    detector = YOLODetector(model_type=model_type, confidence=conf_threshold)
+    detector = YOLODetector(model_types=[model_type], confidence=conf_threshold)
 
     # 获取视频时长
     try:
