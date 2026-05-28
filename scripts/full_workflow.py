@@ -11,6 +11,8 @@
 多开并行: 每个目录自动分配独立 CSV，可同时运行多个窗口
     python scripts/full_workflow.py "D:/aria2/love"
     python scripts/full_workflow.py "D:/aria2/anime"  # 另一个窗口
+
+断点续跑: 中途中断后重新运行同一目录，会自动跳过已完成的步骤
 """
 
 import sys
@@ -33,8 +35,8 @@ def get_csv_path(target_dir: str) -> str:
     return str(csv_dir / "title_review.csv")
 
 
-def run_cmd(args: list, desc: str, timeout: int = 3600):
-    """运行 CLI 命令并打印输出"""
+def run_cmd(args: list, desc: str):
+    """运行 CLI 命令并打印输出（无超时限制）"""
     print(f"\n{'='*60}")
     print(f"[步骤] {desc}")
     print(f"  命令: {' '.join(str(a) for a in args)}")
@@ -43,13 +45,41 @@ def run_cmd(args: list, desc: str, timeout: int = 3600):
     result = subprocess.run(
         [str(a) for a in args],
         cwd=str(PROJECT_ROOT),
-        timeout=timeout,
         encoding="utf-8",
         errors="replace",
     )
     if result.returncode != 0:
         print(f"[警告] 命令返回非零退出码: {result.returncode}")
     return result.returncode
+
+
+def read_csv(csv_path: str) -> list:
+    """读取 CSV 并返回行列表"""
+    if not Path(csv_path).exists():
+        return []
+    with open(csv_path, "r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        return list(reader)
+
+
+def check_audio_done(csv_path: str) -> bool:
+    """检查音频识别是否全部完成"""
+    rows = read_csv(csv_path)
+    if not rows:
+        return False
+    video_ext = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".m4v", ".ts"}
+    video_rows = [r for r in rows if Path(r.get("original_path", "")).suffix.lower() in video_ext]
+    if not video_rows:
+        return True  # 没有视频文件，跳过音频
+    return all(r.get("audio_recognized", "").strip().lower() == "true" for r in video_rows)
+
+
+def check_vision_done(csv_path: str) -> bool:
+    """检查视觉识别是否全部完成"""
+    rows = read_csv(csv_path)
+    if not rows:
+        return False
+    return all(r.get("vision_keywords", "").strip() for r in rows)
 
 
 def step_scan(target_dir: str, csv_path: str):
@@ -64,22 +94,30 @@ def step_scan(target_dir: str, csv_path: str):
 
 
 def step_audio(csv_path: str):
-    """Step 2: 音频识别"""
+    """Step 2: 音频识别（带断点续跑检测）"""
+    if check_audio_done(csv_path):
+        print("\n[跳过] 音频识别已完成，无需重复执行")
+        return 0
+
     cmd = [
         sys.executable, "-m", "title_classifier", "audio",
         "--all", "-p", "mimo", "-c", csv_path,
     ]
-    return run_cmd(cmd, "音频识别 (mimo)", timeout=1800)
+    return run_cmd(cmd, "音频识别 (mimo)")
 
 
 def step_vision(csv_path: str):
-    """Step 3: 视觉识别"""
+    """Step 3: 视觉识别（带断点续跑检测）"""
+    if check_vision_done(csv_path):
+        print("\n[跳过] 视觉识别已完成，无需重复执行")
+        return 0
+
     cmd = [
         sys.executable, "-m", "title_classifier", "vision",
         "--all", "-p", "gcli", "--use-yolo", "--comprehensive",
         "-c", csv_path,
     ]
-    return run_cmd(cmd, "视觉识别 (gcli + YOLO全面分析)", timeout=3600)
+    return run_cmd(cmd, "视觉识别 (gcli + YOLO全面分析)")
 
 
 def step_mux_subtitles(csv_path: str):
@@ -105,10 +143,7 @@ def step_mux_subtitles(csv_path: str):
         "subtitle_processing": "direct",
     })
 
-    with open(csv_path, "r", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
-
+    rows = read_csv(csv_path)
     if not rows:
         print("[警告] CSV 为空，跳过字幕封装")
         return 0
@@ -147,6 +182,16 @@ def step_mux_subtitles(csv_path: str):
                 print(f"  [跳过] SRT 不存在: {srt_full}")
                 skipped += 1
                 continue
+
+        # 检查是否已封装过（视频同目录下已有同名 mkv）
+        VIDEO_OUT_EXT = {".mkv", ".mp4"}
+        existing = [f for f in Path(original_path).parent.iterdir()
+                    if f.is_file() and f.suffix.lower() in VIDEO_OUT_EXT
+                    and Path(original_path).stem in f.name and f != Path(original_path)]
+        if existing:
+            print(f"  [跳过] 已存在封装文件: {existing[0].name}")
+            skipped += 1
+            continue
 
         result = muxer.mux_subtitle(original_path, str(srt_full))
         if result.get("success"):
