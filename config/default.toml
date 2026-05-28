@@ -39,11 +39,19 @@ confidence = 0.5
 
 [yolo.comprehensive]
 enabled = true
-models = ["detect", "pose", "segment"]
+models = [
+    "detect",
+    "pose",
+    "segment",
+]
 parallel_loading = true
-weight_strategy = "confidence_based"  # confidence_based, equal, custom
-custom_weights = {detect = 0.33, pose = 0.34, segment = 0.33}
+weight_strategy = "confidence_based"
 fallback_on_error = true
+
+[yolo.comprehensive.custom_weights]
+detect = 0.33
+pose = 0.34
+segment = 0.33
 
 [clip]
 threshold = 0.25
@@ -99,11 +107,11 @@ format_text = true
 [mux]
 enabled = false
 auto_mux = false
-output_format = "auto"  # auto, mkv, mp4
-file_handling = "new"   # new, overwrite
-subtitle_processing = "direct"  # direct, convert
+output_format = "auto"
+file_handling = "new"
+subtitle_processing = "direct"
 encoding = "utf-8"
 language_detection = true
-track_naming = "auto"   # auto, manual
+track_naming = "auto"
 default_track = true
 retry_failed = true

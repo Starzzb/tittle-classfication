@@ -385,54 +385,60 @@ class VisionProcessor:
         }
 
     def _select_representative_frames(self, timeline: List[Dict], max_frames: int = 10) -> List[int]:
-        """选择代表性帧"""
+        """
+        分区段选择代表性帧：将采样帧等分为 max_frames 个区段，
+        每个区段内独立选最优帧，保证全视频均匀覆盖。
+        """
+        n = len(timeline)
+        if n == 0:
+            return []
+        if n <= max_frames:
+            return list(range(n))
+
+        # 将 timeline 等分为 max_frames 个区段
+        seg_size = n / max_frames
         selected = []
-        frames_with_person = [(i, t) for i, t in enumerate(timeline) if t.get("has_person")]
+
+        for seg_idx in range(max_frames):
+            start = int(seg_idx * seg_size)
+            end = int((seg_idx + 1) * seg_size)
+            if seg_idx == max_frames - 1:
+                end = n  # 最后一段包含末尾
+
+            segment = [(i, timeline[i]) for i in range(start, end)]
+
+            # 区段内按置信度+关键点加权选最优帧
+            best_i = self._pick_best_from_segment(segment)
+            selected.append(best_i)
+
+        return selected
+
+    def _pick_best_from_segment(self, segment: List[tuple]) -> int:
+        """从区段内选出最优帧索引，无人体时取中间帧"""
+        frames_with_person = [(i, t) for i, t in segment if t.get("has_person")]
 
         if not frames_with_person:
-            # 没有人体，均匀选择
-            return list(range(0, len(timeline), max(1, len(timeline) // max_frames)))[:max_frames]
+            # 无人体帧，取区段中间帧保证覆盖
+            return segment[len(segment) // 2][0]
 
-        # 1. 选择人体首次出现的帧
-        first_person_idx = frames_with_person[0][0]
-        selected.append(first_person_idx)
-
-        # 2. 选择姿态变化的帧
+        # 加权评分：confidence 40% + visible_keypoints/17 30% + 姿态变化 30%
         prev_pose = None
+        best_score = -1
+        best_idx = frames_with_person[0][0]
+
         for i, t in frames_with_person:
+            score = t.get("confidence", 0) * 40
+            score += (t.get("visible_keypoints", 0) / 17) * 30
             current_pose = tuple(t.get("pose_analysis", []))
-            if prev_pose and current_pose != prev_pose and i not in selected:
-                selected.append(i)
+            if prev_pose and current_pose != prev_pose:
+                score += 30
             prev_pose = current_pose
 
-        # 3. 选择置信度最高的帧
-        best_idx = max(frames_with_person, key=lambda x: x[1].get("confidence", 0))[0]
-        if best_idx not in selected:
-            selected.append(best_idx)
+            if score > best_score:
+                best_score = score
+                best_idx = i
 
-        # 4. 选择关键点最可见的帧
-        best_kpt_idx = max(frames_with_person, key=lambda x: x[1].get("visible_keypoints", 0))[0]
-        if best_kpt_idx not in selected:
-            selected.append(best_kpt_idx)
-
-        # 5. 补充均匀分布的帧
-        while len(selected) < max_frames and len(selected) < len(timeline):
-            remaining = [i for i in range(len(timeline)) if i not in selected]
-            if not remaining:
-                break
-
-            # 选择距离已选帧最远的帧
-            max_dist = 0
-            best_idx = remaining[0]
-            for i in remaining:
-                min_dist = min(abs(i - s) for s in selected)
-                if min_dist > max_dist:
-                    max_dist = min_dist
-                    best_idx = i
-            selected.append(best_idx)
-
-        selected.sort()
-        return selected[:max_frames]
+        return best_idx
 
     def _generate_frame_descriptions(self, timeline: List[Dict], selected_indices: List[int]) -> List[str]:
         """为选中帧生成描述（包含多个模型的结果）"""
@@ -777,34 +783,56 @@ class VisionProcessor:
         return results
 
     def _select_frames(self, frames: List[str], yolo_results: List[Dict]) -> List[str]:
-        """智能帧选择"""
+        """
+        分区段选择帧：将帧等分为 vlm_frames 个区段，
+        每个区段内按 YOLO 评分选最优帧，保证全视频均匀覆盖。
+        """
+        n = len(frames)
+        if n == 0:
+            return []
+        if n <= self.vlm_frames:
+            return list(frames)
+
         if not yolo_results:
-            return frames[:self.vlm_frames]
+            # 无 YOLO 结果，均匀取帧
+            step = n / self.vlm_frames
+            return [frames[int(i * step)] for i in range(self.vlm_frames)]
 
-        scored = []
+        # 计算每帧评分
+        scores = []
         prev_pose = None
-
-        for i, (frame, result) in enumerate(zip(frames, yolo_results)):
+        for result in yolo_results:
             score = 0.0
-
             if result.get("has_person"):
                 conf = result.get("max_confidence", 0)
                 score += conf * 40
-
                 visible = result.get("poses", [{}])[0].get("visible_count", 0)
                 score += (visible / 17) * 30
-
                 current_pose = tuple(result.get("poses", [{}])[0].get("pose_analysis", []))
                 if prev_pose and current_pose != prev_pose:
                     score += 30
                 prev_pose = current_pose
+            scores.append(score)
 
-            scored.append((i, score))
+        # 等分区段，每段内取最高分帧
+        seg_size = n / self.vlm_frames
+        selected_indices = []
 
-        scored.sort(key=lambda x: x[1], reverse=True)
-        selected_indices = [i for i, _ in scored[:self.vlm_frames]]
+        for seg_idx in range(self.vlm_frames):
+            start = int(seg_idx * seg_size)
+            end = int((seg_idx + 1) * seg_size)
+            if seg_idx == self.vlm_frames - 1:
+                end = n
+
+            best_score = -1
+            best_i = start
+            for i in range(start, end):
+                if scores[i] > best_score:
+                    best_score = scores[i]
+                    best_i = i
+            selected_indices.append(best_i)
+
         selected_indices.sort()
-
         return [frames[i] for i in selected_indices if i < len(frames)]
 
     def _build_yolo_context(self, yolo_results: List[Dict], selected_frames: List[str]) -> str:
@@ -1248,19 +1276,46 @@ class VisionProcessor:
         if not subtitle_segments:
             return ""
         
-        lines = []
+        def fmt_time(s):
+            h = int(s // 3600)
+            m = int((s % 3600) // 60)
+            sec = int(s % 60)
+            return f"{h:02d}:{m:02d}:{sec:02d}"
+        
+        # 按字幕段分组帧，避免重复发送相同字幕内容
+        # key: segment tuple (start, end), value: list of (frame_index, timestamp)
+        from collections import OrderedDict
+        seg_groups = OrderedDict()
+        no_subtitle_frames = []
+        
         for i, ts in enumerate(frame_timestamps, 1):
             seg = self._match_frame_to_subtitles(ts, subtitle_segments)
             if seg:
-                # 格式化时间戳为 HH:MM:SS
-                def fmt_time(s):
-                    h = int(s // 3600)
-                    m = int((s % 3600) // 60)
-                    sec = int(s % 60)
-                    return f"{h:02d}:{m:02d}:{sec:02d}"
-                lines.append(f"- 图{i}@{ts:.1f}s: [{fmt_time(seg['start'])} --> {fmt_time(seg['end'])}] {seg['text']}")
+                seg_key = (seg['start'], seg['end'])
+                if seg_key not in seg_groups:
+                    seg_groups[seg_key] = {"seg": seg, "frames": []}
+                seg_groups[seg_key]["frames"].append((i, ts))
             else:
-                lines.append(f"- 图{i}@{ts:.1f}s: (无对应字幕)")
+                no_subtitle_frames.append((i, ts))
+        
+        lines = []
+        for seg_key, group in seg_groups.items():
+            seg = group["seg"]
+            frames = group["frames"]
+            time_range = f"[{fmt_time(seg['start'])} --> {fmt_time(seg['end'])}]"
+            text = seg['text']
+            
+            if len(frames) == 1:
+                i, ts = frames[0]
+                lines.append(f"- 图{i}@{ts:.1f}s: {time_range} {text}")
+            else:
+                # 多帧对应同一字幕段，合并显示
+                frame_refs = ",".join(str(i) for i, _ in frames)
+                ts_range = f"{frames[0][1]:.1f}s-{frames[-1][1]:.1f}s"
+                lines.append(f"- 图{frame_refs}@{ts_range}: {time_range} {text}")
+        
+        for i, ts in no_subtitle_frames:
+            lines.append(f"- 图{i}@{ts:.1f}s: (无对应字幕)")
         
         return "\n".join(lines)
 

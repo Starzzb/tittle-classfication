@@ -1,83 +1,115 @@
 具体使用说明在 readme.md
 
-项目结构：
-  stage1_extract_propose.py  — 阶段一：扫描目录，提取关键词，标记 needs_vision（支持视频+图片）
-  stage1b_ai_refine.py       — 阶段1b（可选）：AI 批量精简标题
-  stage1c_vision_refine.py   — 阶段1c：视觉识别提取关键词（支持CLIP、关键帧检测、embedding检测）
-  stage1c_frame_selector.py  — 人体检测模块（UHD 超轻量模型）
-  stage1c_clip_classifier.py — CLIP 分类模块（支持多标签、embedding检测）
-  stage2_apply_rename.py     — 阶段二：读取 CSV，执行重命名
-  renamecsv.py               — 辅助工具，批量修改 CSV 审核状态
-  gui.py                     — 图形界面（支持全部功能）
+常用命令：
 
-模型文件：
-  models/human_detection/ultratinyod_res_anc8_w128_64x64_loese_distill.onnx  — UHD 人体检测模型
-  models/clip/                                                              — CLIP 模型目录
+  # 启动 GUI
+  uv run title-classifier gui
 
-API 支持：
-  stage1b: ollama（本地）/ zhipu / gcli
-  stage1c: mimo / gcli
+  # 扫描目录，生成待审 CSV
+  uv run title-classifier scan -d "F:\Videos"
+
+  # 扫描单个文件
+  uv run title-classifier scan -d "F:\Videos\video.mp4"
+
+  # 追加模式（不覆盖已有 CSV）
+  uv run title-classifier scan -d "F:\Videos" -a
+
+  # AI 优化标题（可选）
+  uv run title-classifier refine -p gcli
+
+  # 音频识别生成字幕（可选）
+  uv run title-classifier audio -p mimo
+
+  # 视觉识别（YOLO + VLM）
+  uv run title-classifier vision --use-yolo -p gcli
+
+  # 视觉识别（全面分析，三个 YOLO 模型）
+  uv run title-classifier vision --use-yolo --comprehensive -p gcli
+
+  # 使用 CLIP 预分类
+  uv run title-classifier vision --use-clip --use-yolo -p gcli
+
+  # 预览重命名（不执行）
+  uv run title-classifier rename --dry-run
+
+  # 执行重命名
+  uv run title-classifier rename
+
+  # 模型下载
+  uv run python scripts/download_models.py     # 一键下载全部
+  uv run python scripts/download_clip.py       # 仅 CLIP
+  uv run python scripts/download_yolo_models.py # 仅 YOLO
+
+  # 重建虚拟环境
+  uv sync
+
+常用参数：
+
+  scan:
+    -d, --dir          目标目录或文件（必需）
+    -o, --output       输出 CSV 路径
+    -a, --append       追加模式
+    --exclude-dir      排除目录
+    --force            强制重新分类
+
+  refine:
+    -c, --csv          CSV 文件路径
+    -p, --provider     AI Provider（gcli/zhipu/ollama）
+
+  audio:
+    -c, --csv          CSV 文件路径
+    -p, --provider     AI Provider（默认 mimo）
+    --all              处理所有未识别文件
+
+  vision:
+    -c, --csv          CSV 文件路径
+    -p, --provider     AI Provider
+    --use-yolo         启用 YOLO 检测
+    --comprehensive    全面分析（detect+pose+segment）
+    --yolo-model       YOLO 模型类型（detect/pose/segment）
+    --use-clip         启用 CLIP 预分类
+    --vlm-frames       VLM 帧数（默认 10）
+    --analysis-step    采样间隔秒数（默认 2.0）
+    --all              处理所有未识别文件
+    --single "文件名"  仅处理指定文件
+
+  rename:
+    -c, --csv          CSV 文件路径
+    --dry-run          模拟运行
 
 配置：
-  .env                       — 存放 API Key（已加入 .gitignore）
-    ZHIPU_API_KEY            — 智谱 API key
-    MIMO_API_KEY             — 小米 MiMo API key
-    GCLI_API_KEY             — gcli API key（OpenAI 兼容）
+  .env                       — API Key（已加入 .gitignore）
+    GCLI_API_KEY             — gcli API key（视觉识别，推荐）
+    MIMO_API_KEY             — MiMo API key（视觉+音频）
+    ZHIPU_API_KEY            — 智谱 API key（文本优化）
+  config/default.toml        — VAD/音频/字幕等参数
+  config/providers.json      — 自定义 Provider
 
-工作流：
-  1. stage1  扫描 → CSV（含 needs_vision）
-  2. stage1b AI 清洗 → final_name（有意义的标题，needs_vision=false）
-  3. stage1c 视觉识别 → final_name（无意义的标题，needs_vision=true）
-  4. stage2  执行重命名
+模型目录：
+  models/clip/               — CLIP 模型
+  models/yolo/               — YOLO 模型（detect/pose/segment）
 
-Stage1b 新功能（v5.0）：
-  - 只处理 needs_vision=false 的标题（跳过需要视觉识别的）
-  - GUI 支持预览和编辑 AI 优化结果
-  - 双击可修改优化结果
-  - 右键菜单：采用原标题、编辑、删除
-  - 用户确认后才写入 final_name
+帧选择策略（分区段覆盖）：
 
-命令工作流：
-uv run python stage1_extract_propose.py -d "F:\Videos"                     # 必需：扫描目录
+  视频按采样间隔（默认2秒）提取帧（上限50帧），再选出 vlm_frames 帧发送给 VLM。
+  选帧采用"分区段"策略，将采样帧等分为 vlm_frames 个区段，每个区段内独立选最优帧，
+  保证全视频均匀覆盖，不会因后半段置信度低而被忽略。
 
-# 如果文件已有中括号标签，想重新提取原始标题：
-uv run python stage1_extract_propose.py -d "F:\Videos" --force-reclassify -o "review_reclassify.csv"
+  示例：60秒视频，采样30帧，选10帧
+    区段1 [帧0-2]  → 内部比置信度 → 选1帧（覆盖 0-6s）
+    区段2 [帧3-5]  → 内部比置信度 → 选1帧（覆盖 6-12s）
+    ...
+    区段10 [帧27-29] → 内部比置信度 → 选1帧（覆盖 54-60s）
 
-#1b可以跳过，我给优化了（GUI中可预览编辑）
+  区段内评分规则（全面分析模式）：
+    置信度 40% + 关键点可见性 30% + 姿态变化 30%
+    无人体帧 → 取区段中间帧（保证覆盖）
 
-uv run python stage1c_vision_refine.py                                     # 默认启用人体检测
+字幕上下文优化：
 
-uv run python renamecsv.py                                                 # 直接添加已确认
+  发送给 VLM 的字幕上下文按字幕时间段去重：多个帧落入同一字幕区间时合并显示，
+  避免重复发送相同字幕内容。
 
-uv run python stage2_apply_rename.py
-
-新功能（v5.0）：
-  CLIP 预分类：
-    --use-clip                    启用 CLIP 本地预分类
-    --clip-threshold 0.25         CLIP 置信度阈值
-    --clip-frames 5               CLIP 分析的视频帧数
-    --vlm-frames 3                送入云端 VLM 的帧数
-    --multi-label                 多标签模式（默认）
-    --single-label                单标签模式
-
-  关键帧检测：
-    --keyframe-threshold 30.0     关键帧差异阈值（越低越敏感）
-    --max-keyframes 8             最大关键帧数
-
-  Embedding 变化检测：
-    --use-embedding-detection     使用 embedding 检测变化（默认）
-    --no-embedding-detection      禁用 embedding 检测
-    --embedding-threshold 0.75    Embedding 相似度阈值（稳健值）
-
-常用参数（stage1）：
-  --force-reclassify     强制重分类：处理所有文件，有中括号提取原始标题，没有也正常处理
-  --exclude-dir          排除目录
-  -a                     追加模式
-
-常用参数（stage1c）：
-  --no-frame-selector    禁用人体检测（使用固定时间点提取帧）
-  --max-image-size 640   调整图片压缩大小
-  --conf-threshold 0.3   降低人体检测阈值（更敏感）
-  --retry-errors         重试之前失败的行
-  --single "文件名"       仅处理指定文件
-  --timestamp "00:01:30" 指定固定时间点（覆盖自适应策略）
+  示例：
+    - 图1,2,3,4@4.0s-30.0s: [00:00:01 --> 00:00:31] 字幕内容...
+    - 图9@48.0s: [00:00:33 --> 00:00:59] 字幕内容...
