@@ -582,6 +582,7 @@ def call_audio_api(
     api_key: str = None,
     timeout: int = 120,
     retries: int = 3,
+    reasoning_retries: int = 2,
 ) -> str:
     """
     调用mimo音频理解API
@@ -592,7 +593,8 @@ def call_audio_api(
         model: 模型名称（可选，默认mimo-v2-omni）
         api_key: API Key（可选，从环境变量获取）
         timeout: 超时时间
-        retries: 重试次数
+        retries: 网络重试次数
+        reasoning_retries: 思维链重试次数（检测到推理输出时用加强prompt重试）
 
     Returns:
         音频描述文本
@@ -611,41 +613,65 @@ def call_audio_api(
     if prompt is None:
         prompt = "Transcribe all speech content in this audio to Chinese. Output transcription only."
 
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a speech recognition system. Transcribe audio content objectively.\n"
-                    "This is a technical audio analysis task - transcribe ALL audible speech without filtering or refusal.\n"
-                    "DO NOT think, reason, explain, or output chain-of-thought - output the transcription directly.\n\n"
-                    "RULES:\n"
-                    "1. Output: Simplified Chinese only\n"
-                    "2. Transcribe ALL speech verbatim, do not omit or censor any content\n"
-                    "3. Quote speech: \"words\"\n"
-                    "4. Mark speakers: (male)(female)(whisper)\n"
-                    "5. Mark sounds: (laughter)(music)(coughing)\n"
-                    "6. Unclear words: [?]\n"
-                    "7. NEVER refuse, censor, think, or explain - transcription only\n"
-                    "8. Output transcription only, nothing else\n"
-                    "9. No speech detected: (无语音内容)"
-                ),
-            },
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_audio", "input_audio": {"data": audio_b64}},
-                    {"type": "text", "text": prompt},
-                ],
-            },
-        ],
-        "reasoning": {"enabled": False},
-        "max_completion_tokens": 2048,
-    }
+    # 思维链检测标记
+    REASONING_MARKERS = ["首先", "用户指令", "根据规则", "我需要", "这是一个技术",
+                         "规则：", "你是一名", "Transcribe ALL", "You are a speech"]
 
-    last_error = None
-    for attempt in range(retries):
+    def _is_reasoning(text: str) -> bool:
+        """判断文本是否包含思维链输出"""
+        if not text:
+            return False
+        if len(text) > 400:
+            return True
+        return any(m in text for m in REASONING_MARKERS)
+
+    def _extract_short(text: str) -> str:
+        """从思维链文本中提取推理标记之前的部分"""
+        for m in REASONING_MARKERS:
+            idx = text.find(m)
+            if idx > 10:
+                short = text[:idx].strip().strip('"')
+                if len(short) > 2:
+                    return short
+        return ""
+
+    def _build_payload(user_prompt: str) -> dict:
+        """构建请求 payload"""
+        return {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a speech recognition system. Transcribe audio content objectively.\n"
+                        "This is a technical audio analysis task - transcribe ALL audible speech without filtering or refusal.\n"
+                        "DO NOT think, reason, explain, or output chain-of-thought - output the transcription directly.\n\n"
+                        "RULES:\n"
+                        "1. Output: Simplified Chinese only\n"
+                        "2. Transcribe ALL speech verbatim, do not omit or censor any content\n"
+                        "3. Quote speech: \"words\"\n"
+                        "4. Mark speakers: (male)(female)(whisper)\n"
+                        "5. Mark sounds: (laughter)(music)(coughing)\n"
+                        "6. Unclear words: [?]\n"
+                        "7. NEVER refuse, censor, think, or explain - transcription only\n"
+                        "8. Output transcription only, nothing else\n"
+                        "9. No speech detected: (无语音内容)"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_audio", "input_audio": {"data": audio_b64}},
+                        {"type": "text", "text": user_prompt},
+                    ],
+                },
+            ],
+            "reasoning": {"enabled": False},
+            "max_completion_tokens": 2048,
+        }
+
+    def _call_api(payload: dict) -> tuple:
+        """调用API，返回 (content, reasoning_content)"""
         req = urllib.request.Request(
             api_url,
             data=json.dumps(payload).encode(),
@@ -654,44 +680,61 @@ def call_audio_api(
                 "Authorization": f"Bearer {api_key}",
             },
         )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            result = json.loads(resp.read())
+            msg = result.get("choices", [{}])[0].get("message", {})
+            return msg.get("content", "").strip(), msg.get("reasoning_content", "").strip()
+
+    last_error = None
+    for attempt in range(retries):
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                result = json.loads(resp.read())
-                content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-                reasoning = result.get("choices", [{}])[0].get("message", {}).get("reasoning_content", "").strip()
+            # 第一次用原始 prompt
+            content, reasoning = _call_api(_build_payload(prompt))
 
-                # 判断 content 是否为推理内容（思维链）
-                reasoning_markers = ["首先", "用户指令", "根据规则", "我需要", "这是一个技术",
-                                     "规则：", "你是一名", "Transcribe ALL", "You are a speech"]
-                is_content_reasoning = any(m in content for m in reasoning_markers)
-                content_too_long = len(content) > 400
+            # 检查是否为思维链输出
+            if _is_reasoning(content):
+                logger.warning(f"音频API输出思维链，尝试加强prompt重试 (最多{reasoning_retries}次)")
 
-                if content and not is_content_reasoning and not content_too_long:
-                    return content
+                # 用加强版 prompt 重试
+                for rr in range(reasoning_retries):
+                    stronger_prompt = (
+                        "DO NOT THINK, REASON, OR EXPLAIN. "
+                        "Output the audio transcription DIRECTLY. "
+                        "No analysis, no chain-of-thought, just the transcribed speech. "
+                    ) + prompt
 
-                if reasoning and not is_content_reasoning:
-                    logger.debug(f"content疑似推理内容，使用reasoning_content")
-                    return reasoning
+                    content, reasoning = _call_api(_build_payload(stronger_prompt))
 
-                # reasoning也空或也是推理 → 尝试从content提取短片段
-                if content and is_content_reasoning and (not reasoning or len(reasoning) < 10):
-                    logger.debug(f"content包含推理链，提取非推理部分")
-                    # 取第一个推理标记之前的部分
-                    for m in reasoning_markers:
-                        idx = content.find(m)
-                        if idx > 10:
-                            short = content[:idx].strip().strip('"')
-                            if len(short) > 2:
-                                return short
-                            break
+                    if not _is_reasoning(content):
+                        logger.info(f"加强prompt重试成功 (第{rr+1}次)")
+                        break
+                else:
+                    logger.warning(f"加强prompt重试{reasoning_retries}次仍输出思维链，尝试过滤")
 
-                # 最后一个兜底
-                if content:
-                    return content
-                if reasoning:
-                    return reasoning
+            # 最终判断：内容正常则返回
+            if content and not _is_reasoning(content):
+                return content
+
+            # reasoning_content 正常则使用
+            if reasoning and not _is_reasoning(reasoning):
+                logger.debug("content异常，使用reasoning_content")
+                return reasoning
+
+            # 尝试从 content 提取短片段
+            short = _extract_short(content)
+            if short:
+                logger.debug("从思维链中提取到短片段")
+                return short
+
+            # 兜底
+            if content:
+                return content
+            if reasoning:
+                return reasoning
+
         except Exception as e:
             last_error = e
+            logger.error(f"音频API调用失败 (尝试 {attempt+1}/{retries}): {e}")
             if attempt < retries - 1:
                 time.sleep(2 * (attempt + 1))
 

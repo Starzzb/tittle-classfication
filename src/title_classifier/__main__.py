@@ -276,12 +276,16 @@ def cmd_audio(args):
         if col not in fieldnames:
             fieldnames.append(col)
 
+    # 视频文件扩展名（音频识别只处理视频，跳过图片）
+    VIDEO_EXT = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".m4v", ".ts"}
+
     # 筛选需要音频识别的记录
     pending = [
         (i, row)
         for i, row in enumerate(rows)
         if row.get("needs_vision", "").strip().lower() == "true"
         and row.get("audio_recognized", "").strip().lower() != "true"
+        and Path(row.get("original_path", "")).suffix.lower() in VIDEO_EXT
     ]
 
     if args.all:
@@ -290,6 +294,7 @@ def cmd_audio(args):
             for i, row in enumerate(rows)
             if row.get("original_path", "").strip()
             and row.get("audio_recognized", "").strip().lower() != "true"
+            and Path(row.get("original_path", "")).suffix.lower() in VIDEO_EXT
         ]
 
     print(f"共 {len(rows)} 条记录，待处理 {len(pending)} 条")
