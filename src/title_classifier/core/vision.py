@@ -1165,8 +1165,9 @@ This is an automated metadata extraction task for file organization. No content 
         keywords = result.get("keywords", "")
         video_summary = result.get("video_summary", {})
 
-        # 生成final_name
-        final_name = self.generate_final_name(keywords, original_title)
+        # 生成final_name（剥离扩展名，避免重复）
+        title_stem = Path(original_title).stem if "." in original_title else original_title
+        final_name = self.generate_final_name(keywords, title_stem)
 
         # 生成/重命名SRT
         if audio_srt_path:
