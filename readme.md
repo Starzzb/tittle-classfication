@@ -651,6 +651,80 @@ VAD原始: [1.0-1.5] [1.7-2.3] [2.5-3.1] [5.0-6.2]
 
 ---
 
+## SQLite 数据库
+
+### 功能说明
+
+v7.5.0 新增 SQLite 数据库存储媒体元数据，支持标签索引、搜索、改动历史记录。数据库与视频文件分离，便于迁移和云端查看。
+
+### 数据库位置
+
+```
+data/
+├── media.db          # SQLite 数据库
+├── covers/           # VLM 图片库（按视频 ID 分目录）
+│   ├── 1/
+│   │   ├── frame_000.jpg
+│   │   └── ...
+│   └── ...
+└── output/           # CSV 输出
+```
+
+### CLI 命令
+
+```powershell
+# 初始化数据库
+title-classifier db init
+
+# 从 CSV 导入数据
+title-classifier db import --csv "data/output/love/title_review.csv"
+
+# 导入所有 CSV
+title-classifier db import --all
+
+# 列出记录
+title-classifier db list --limit 20
+
+# 搜索
+title-classifier db search --query "关键词"
+title-classifier db search --tag "tag_name"
+
+# 查看单条记录
+title-classifier db show <media_id>
+
+# 查看改动历史
+title-classifier db history <media_id>
+
+# 统计信息
+title-classifier db stats
+```
+
+### 数据库表结构
+
+| 表名 | 说明 |
+|------|------|
+| `media_files` | 媒体文件主表（路径、标题、描述、状态等） |
+| `tags` | 标签表（从 vision_keywords 自动提取） |
+| `media_tags` | 媒体-标签关联表 |
+| `change_log` | 改动记录表（跟踪所有修改） |
+| `vlm_frames` | VLM 帧表（记录 VLM 图片路径） |
+
+### 实时同步
+
+GUI 所有操作自动同步到数据库：
+- Stage1 扫描 → 写入新文件
+- Stage1b AI优化 → 更新 final_name/keywords
+- Stage1c 音频识别 → 更新 audio_recognized/srt_path
+- Stage1c 视觉识别 → 更新 description/keywords/flags
+- Stage2 重命名 → 更新 current_path
+
+### 去重策略
+
+- 基于 `file_size + duration` 快速匹配
+- 仅保留最新路径，旧路径标记为"已移动"
+
+---
+
 ## AI Provider 配置
 
 ### 内置 Provider
@@ -698,7 +772,9 @@ title-classifier/
 │       │   ├── scanner.py           # 文件扫描
 │       │   ├── refiner.py           # AI优化
 │       │   ├── vision.py            # 视觉识别（VLM + YOLO + 字幕上下文）
-│       │   └── renamer.py           # 重命名
+│       │   ├── renamer.py           # 重命名
+│       │   ├── db_schema.sql        # SQLite 表结构定义
+│       │   └── db_store.py          # SQLite 数据库访问层
 │       │
 │       ├── detectors/
 │       │   ├── base.py              # 检测器基类
@@ -743,11 +819,17 @@ title-classifier/
 │   ├── workflow_vision.py           # 扫描+视觉识别
 │   ├── workflow_reclassify.py       # 强制重分类
 │   ├── workflow_rename.py           # 确认+重命名
-│   └── workflow_mux.py              # 字幕封装
+│   ├── workflow_mux.py              # 字幕封装
+│   └── import_csv.py                # CSV导入到数据库
 │
 ├── tests/                           # 测试文件
 ├── test/                            # 测试数据
 ├── data/
+│   ├── media.db                     # SQLite 数据库
+│   ├── covers/                      # VLM 图片库
+│   │   └── <video_id>/              # 按视频 ID 分目录
+│   │       ├── frame_000.jpg        # 发送给 VLM 的帧
+│   │       └── ...
 │   ├── output/                      # 输出目录
 │   │   └── <目录名>/                # 每个目标目录独立子目录
 │   │       ├── title_review.csv     # 待审表
@@ -828,11 +910,51 @@ python scripts/full_workflow.py "D:/aria2/anime"
 
 不会。v7.4.0 起所有 CSV 写入使用原子化操作：先写入临时文件，再用 `os.replace()` 原子替换原文件。即使崩溃，原文件仍完好。
 
+### Q11：数据库文件在哪里？如何备份？
+
+数据库文件在 `data/media.db`，VLM 图片在 `data/covers/`。备份时复制这两个位置即可。数据库使用 WAL 模式，支持并发读取。
+
+### Q12：如何查看数据库中的数据？
+
+```powershell
+# 使用 CLI 命令
+title-classifier db list
+title-classifier db search --query "关键词"
+title-classifier db stats
+
+# 或使用数据库浏览器打开 data/media.db
+```
+
 ---
 
 ## 更新日志
 
-### v7.4.0（当前版本）
+### v7.5.0（当前版本）
+
+**新增：SQLite 数据库**
+
+- 新增 `data/media.db` 数据库存储媒体元数据
+- 表结构：`media_files`、`tags`、`media_tags`、`change_log`、`vlm_frames`
+- 支持标签索引、搜索、改动历史记录
+- VLM 帧保存到 `data/covers/<video_id>/`（仅首次）
+- CLI 命令：`db init`、`db import`、`db list`、`db search`、`db show`、`db history`、`db stats`
+- GUI 所有操作自动同步到数据库（扫描、音频识别、视觉识别、重命名）
+
+**GUI 改进**
+
+- 新增 CSV 状态栏 + 并发提示，实时显示当前 CSV 路径
+- 日志区域改为 `ttk.PanedWindow`，可拖拽调整大小
+- 修复 CSV 路径同步：使用 `trace_add` 实时同步各标签页 CSV 变量
+- 修复 `_on_tab_changed`：切换标签页不再覆盖所有标签页的 CSV 路径
+
+**字幕封装改进**
+
+- 修复 `_get_output_path`：覆盖模式下使用不同的临时文件名，避免 ffmpeg "cannot edit in-place" 错误
+- 安全覆盖策略：原始文件→备份→临时文件→原位置，三步安全替换
+- 新增文件大小验证：防止覆盖时替换为损坏的小文件
+- 改进错误日志：覆盖失败时记录完整错误信息和 ffmpeg 返回码
+
+### v7.4.0
 
 **稳定性：原子化 CSV 写入**
 
