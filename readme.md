@@ -291,13 +291,18 @@ uv run title-classifier gui
 
 - **加载CSV**：加载CSV到预览表格
 - **AI优化**：调用AI优化标题，自动加载结果
-- **右键菜单**：
-  - 编辑：双击或右键编辑优化结果
-  - 采用原标题：使用原始文件名
-  - 切换 needs_vision：手动标记是否需要视觉识别
-  - 切换 audio_recognized：手动标记音频识别状态
-  - 删除：从预览中移除
-- **确认写入**：将优化结果写入CSV
+- **右键菜单**（按功能分组）：
+  - **标题操作**：
+    - 编辑标题：双击或右键编辑优化结果
+    - 采用原标题：使用原始文件名（标记为已修改）
+    - 重置为原标题：取消优化（不标记为修改）
+  - **状态切换（即时生效）**：
+    - 需要视觉识别：切换 TRUE/FALSE（即时写入CSV）
+    - 音频已识别：切换 TRUE/FALSE（即时写入CSV）
+  - **其他**：
+    - 删除：从预览中移除
+- **确认写入**：只写入已修改行的 final_name（自动加中括号）
+- **修改行高亮**：浅蓝色背景，一眼区分修改/未修改
 
 ### Stage1c 音频识别
 
@@ -319,16 +324,16 @@ uv run title-classifier gui
 ```toml
 [audio.vad]
 # 第一层：微合并
-merge_gap = 0.8          # 间隙小于此值的相邻语音段合并
+merge_gap = 1.5          # 间隙小于此值的相邻语音段合并
 min_keep_duration = 1.0  # 合并后仍不足此值的跳过
 
 # 第二层：语义打包
 max_chunk = 25.0         # 模型时长上限
-long_gap = 2.0           # 间隙超过此值强制封口
+long_gap = 3.0           # 间隙超过此值强制封口
 
 # 第三层：静音过滤
 min_duration = 1.0       # 最小块时长
-min_speech_ratio = 0.4   # 最小语音占比
+min_speech_ratio = 0.3   # 最小语音占比
 ```
 
 ### Stage1c 视觉识别
@@ -499,9 +504,9 @@ uv run title-classifier vision --use-yolo --vlm-frames 15 -p gcli
   ↓ ffmpeg 提取音频 (16kHz, 单声道, float32)
   ↓
 Silero VAD 检测语音段
-  ↓ 第一层：微合并（间隙 < 0.8秒合并）
-  ↓ 第二层：语义打包（长停顿 > 2秒断开，最大块 25秒）
-  ↓ 第三层：静音过滤（时长 < 1秒跳过，语音占比 < 40%跳过）
+  ↓ 第一层：微合并（间隙 < 1.5秒合并）
+  ↓ 第二层：语义打包（长停顿 > 3秒断开，最大块 25秒）
+  ↓ 第三层：静音过滤（时长 < 1秒跳过，语音占比 < 30%跳过）
   ↓
 逐段调用 MiMo API 语音转录
   ↓ 被拒绝的段按10秒切片自动重试
@@ -563,14 +568,14 @@ volume_threshold = 0.01
 
 [audio.vad]
 enabled = true
-min_speech_ms = 150
-min_silence_ms = 80
-merge_gap = 0.8
+min_speech_ms = 250
+min_silence_ms = 350
+merge_gap = 1.5
 min_keep_duration = 1.0
 max_chunk = 25.0
-long_gap = 2.0
+long_gap = 3.0
 min_duration = 1.0
-min_speech_ratio = 0.4
+min_speech_ratio = 0.3
 
 [audio.postprocess]
 enabled = true
@@ -709,6 +714,8 @@ title-classifier/
 │       │   ├── video.py             # 视频工具
 │       │   ├── image.py             # 图片工具
 │       │   ├── audio.py             # 音频处理（VAD分段 + API调用）
+│       │   ├── atomic_csv.py        # 原子化CSV读写（崩溃安全）
+│       │   ├── muxer.py             # 字幕封装（SRT嵌入视频）
 │       │   ├── subtitle_postprocessor.py  # 字幕后处理
 │       │   └── stats.py             # 标签统计
 │       │
@@ -729,13 +736,24 @@ title-classifier/
 ├── scripts/
 │   ├── download_models.py           # 一键下载所有模型
 │   ├── download_clip.py
-│   └── download_yolo_models.py
+│   ├── download_yolo_models.py
+│   ├── full_workflow.py             # 完整工作流
+│   ├── workflow_common.py           # 工作流公共模块
+│   ├── workflow_scan_audio.py       # 扫描+音频识别
+│   ├── workflow_vision.py           # 扫描+视觉识别
+│   ├── workflow_reclassify.py       # 强制重分类
+│   ├── workflow_rename.py           # 确认+重命名
+│   └── workflow_mux.py              # 字幕封装
 │
 ├── tests/                           # 测试文件
 ├── test/                            # 测试数据
 ├── data/
 │   ├── output/                      # 输出目录
-│   └── subtitles/                   # SRT字幕目录
+│   │   └── <目录名>/                # 每个目标目录独立子目录
+│   │       ├── title_review.csv     # 待审表
+│   │       ├── subtitles/           # SRT字幕目录
+│   │       └── workflow.log         # 工作流日志
+│   └── debug/                       # 调试数据
 │
 ├── pyproject.toml
 └── .env
@@ -792,11 +810,88 @@ robocopy "F:\Videos" "F:\Videos_Backup" /E /NFL /NDL /NJH /NJS
 enabled = false
 ```
 
+### Q9：如何并行处理多个目录？
+
+使用工作流脚本，每个目录自动分配独立的 CSV 和日志：
+
+```powershell
+# 窗口1
+python scripts/full_workflow.py "D:/aria2/love"
+
+# 窗口2（同时运行）
+python scripts/full_workflow.py "D:/aria2/anime"
+```
+
+每个目录的输出在 `data/output/<目录名>/` 下，互不干扰。
+
+### Q10：CSV 写入时崩溃会丢数据吗？
+
+不会。v7.4.0 起所有 CSV 写入使用原子化操作：先写入临时文件，再用 `os.replace()` 原子替换原文件。即使崩溃，原文件仍完好。
+
 ---
 
 ## 更新日志
 
-### v7.3.0（当前版本）
+### v7.4.0（当前版本）
+
+**稳定性：原子化 CSV 写入**
+
+- 所有 CSV 写入操作改为原子化：写入临时文件 → `os.replace()` 原子替换
+- 崩溃/断电不再导致 CSV 损坏或数据丢失
+- 涉及 8 个写入点：scanner、cmd_audio、cmd_vision、gui/app.py (4处)、full_workflow.py
+
+**VLM 空关键词重试**
+
+- 视觉识别返回空关键词时，自动用强调格式的 prompt 重试一次
+- 适用于视频全面分析模式、传统模式、图片模式
+- 增大 `max_tokens` 1024→2048，防止响应截断导致关键词丢失
+
+**VAD 参数调优**
+
+- 更宽松的语音分段，短停顿不再切断语音：
+  - `min_silence_ms`: 80→350ms（VAD 判定静音的最短时长）
+  - `merge_gap`: 0.8→1.5s（微合并间隙阈值）
+  - `long_gap`: 2.0→3.0s（语义打包长停顿阈值）
+  - `min_speech_ms`: 150→250ms（过滤极短语音碎片）
+  - `min_speech_ratio`: 0.4→0.3（最低语音占比）
+
+**Scanner 括号前缀剥离**
+
+- `--force` 扫描时自动去除文件名的 `[关键词]_` 前缀
+- 以干净文件名重新判断 `needs_vision`，防止嵌套括号
+- `generate_final_name()` 添加安全兜底，防止双重括号
+
+**Per-directory 输出**
+
+- 目录扫描自动输出到 `data/output/<目录名>/title_review.csv`
+- 单文件扫描保持默认 `data/output/title_review.csv`
+- 支持并行处理多个目录，互不干扰
+
+**GUI Stage1b 改进**
+
+- "确认写入CSV" 只写已修改行的 final_name，未修改行不受影响
+- needs_vision/audio_recognized 切换即时写入 CSV，不需要点"确认写入"
+- 右键菜单按功能分组，动态显示当前值和切换方向
+- 修改行高亮（浅蓝色背景），一眼区分修改/未修改
+- 新增"重置为原标题"菜单项，取消优化不标记为修改
+
+**工作流脚本**
+
+- 提取公共模块 `workflow_common.py`
+- 新增专用脚本：
+  - `workflow_scan_audio.py`：扫描 + 音频识别
+  - `workflow_vision.py`：扫描 + 视觉识别
+  - `workflow_reclassify.py`：强制重分类（剥离括号前缀）
+  - `workflow_rename.py`：确认 + 重命名
+  - `workflow_mux.py`：字幕封装
+- `full_workflow.py` 重构为使用共享模块
+
+**日志修正**
+
+- 视觉识别日志准确区分 "YOLO基础模式" 和 "YOLO全面分析模式"
+- 根据实际模型数量显示，不再误导用户
+
+### v7.3.0
 
 **优化：分区段帧选择策略**
 
