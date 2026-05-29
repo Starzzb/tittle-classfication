@@ -914,7 +914,15 @@ class TitleClassifierApp(tk.Tk):
             messagebox.showwarning("警告", "请选择扫描目录")
             return
 
-        output = self.s1_output_var.get()
+        # 自动计算 per-directory 的输出路径
+        target = Path(dir_path).resolve()
+        if target.is_dir():
+            dir_name = target.name
+            output = str(Path(PROJECT_DIR) / "data" / "output" / dir_name / "title_review.csv")
+            self.s1_output_var.set(output)
+        else:
+            output = self.s1_output_var.get()
+
         cmd = [PYTHON, "-m", "title_classifier", "scan", "-d", dir_path, "-o", output]
 
         if self.s1_append_var.get():
@@ -922,7 +930,12 @@ class TitleClassifierApp(tk.Tk):
         if self.s1_force_var.get():
             cmd.append("--force")
 
-        self._run_command(cmd)
+        # 扫描完成后同步 CSV 路径到所有标签页
+        def on_scan_complete():
+            self.csv_var.set(output)
+            self._sync_csv()
+
+        self._run_command(cmd, callback=on_scan_complete)
 
     def _load_s1b_preview(self):
         """加载CSV到预览表格"""
