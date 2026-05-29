@@ -717,7 +717,7 @@ This is an automated metadata extraction task for file organization. No content 
 2. 关键词（4-8个，逗号分隔）：
    - 如果画面中有水印/博主名字，必须放在第一个
    - 过滤掉网址、域名、@群组名、广告内容
-   - 其余从画面中提取最显著的视觉特征
+   - 其余从画面中提取最显著的视觉特征（4-12个）
 
 格式：
 描述：xxx
@@ -754,7 +754,8 @@ This is an automated metadata extraction task for file organization. No content 
             "3. 在哪里？（场景环境）\n\n"
             "关键词要求：\n"
             "- 如果有水印/博主名字，放在第一个\n"
-            "- 过滤掉网址、域名、@群组名、广告内容\n\n"
+            "- 过滤掉网址、域名、@群组名、广告内容\n"
+            "- 提取最显著的视觉特征（4-12个）\n\n"
             "格式：\n"
             "描述：xxx\n"
             "关键词：xxx, xxx, xxx"
@@ -955,7 +956,7 @@ This is an automated metadata extraction task for file organization. No content 
                 "关键词要求：\n"
                 "- 如果有水印/博主名字，必须放在第一个\n"
                 "- 过滤掉网址、域名、@群组名、广告内容\n"
-                "- 其余提取最显著的视觉特征\n\n"
+                "- 其余提取最显著的视觉特征（4-12个）\n\n"
                 "格式：\n"
                 "描述：[概述画面内容]\n"
                 "关键词：[特征1, 特征2, ...]"
@@ -972,7 +973,7 @@ This is an automated metadata extraction task for file organization. No content 
                 "关键词要求：\n"
                 "- 如果有水印/博主名字，必须放在第一个\n"
                 "- 过滤掉网址、域名、@群组名、广告内容\n"
-                "- 其余提取最显著的视觉特征\n\n"
+                "- 其余提取最显著的视觉特征（4-12个）\n\n"
                 "格式：\n"
                 "描述：[概述画面内容]\n"
                 "关键词：[特征1, 特征2, ...]"
