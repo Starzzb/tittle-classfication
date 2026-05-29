@@ -114,6 +114,11 @@ class TitleClassifierApp(tk.Tk):
         # 加载.env文件
         self._load_env()
 
+        # 初始化数据库
+        from ..core.db_store import MediaDB
+        self.db = MediaDB()
+        self.db.init_schema()
+
         # 共享CSV路径变量
         self.csv_var = tk.StringVar(value=DEFAULT_CSV)
 
@@ -237,6 +242,24 @@ class TitleClassifierApp(tk.Tk):
             tab_text = self.notebook.tab(self.notebook.select(), "text")
         except Exception:
             return
+
+    def _gui_sync_to_db(self, original_path: str, updates: dict, source: str = "gui"):
+        """GUI 操作同步到数据库"""
+        if not self.db:
+            return
+        try:
+            media = self.db.find_by_path(original_path)
+            if not media:
+                # 插入新记录
+                data = {"original_path": original_path, "original_title": Path(original_path).name}
+                data.update(updates)
+                self.db.insert_media(data)
+            else:
+                # 更新现有记录
+                for field, value in updates.items():
+                    self.db.update_media(media["id"], field, value, source)
+        except Exception as e:
+            print(f"[警告] 数据库同步失败: {e}")
         for key, var in self._csv_tab_vars.items():
             if key in tab_text:
                 self.csv_var.set(var.get())
@@ -975,12 +998,48 @@ class TitleClassifierApp(tk.Tk):
         if self.s1_force_var.get():
             cmd.append("--force")
 
-        # 扫描完成后同步 CSV 路径到所有标签页
+        # 扫描完成后同步 CSV 路径到所有标签页 + 同步到数据库
         def on_scan_complete():
             self.csv_var.set(output)
             self._sync_csv()
+            # 同步扫描结果到数据库
+            self._sync_csv_to_db(output)
 
         self._run_command(cmd, callback=on_scan_complete)
+
+    def _sync_csv_to_db(self, csv_path: str):
+        """从 CSV 同步数据到数据库"""
+        if not self.db:
+            return
+        try:
+            import csv as csv_module
+            with open(csv_path, "r", encoding="utf-8-sig") as f:
+                reader = csv_module.DictReader(f)
+                for row in reader:
+                    original_path = row.get("original_path", "")
+                    if not original_path:
+                        continue
+                    existing = self.db.find_by_path(original_path)
+                    if existing:
+                        continue
+                    data = {
+                        "original_title": row.get("original_title", ""),
+                        "original_path": original_path,
+                        "current_path": original_path,
+                        "needs_vision": row.get("needs_vision", "").lower() == "true",
+                        "final_name": row.get("final_name", ""),
+                        "review_status": row.get("review_status", "待确认"),
+                        "audio_recognized": row.get("audio_recognized", "").lower() == "true",
+                        "srt_path": row.get("srt_path", ""),
+                        "vision_description": row.get("vision_description", ""),
+                        "vision_keywords": row.get("vision_keywords", ""),
+                        "human_detected": row.get("human_detected", "").lower() == "true",
+                        "detection_method": row.get("detection_method", ""),
+                    }
+                    self.db.insert_media(data)
+            print("[数据库] 扫描结果已同步")
+        except Exception as e:
+            print(f"[警告] 数据库同步失败: {e}")
 
     def _load_s1b_preview(self):
         """加载CSV到预览表格"""
@@ -1554,6 +1613,11 @@ class TitleClassifierApp(tk.Tk):
                             print(f"  [完成] {elapsed:.1f}秒")
                             print(f"  SRT: {result_path}")
                             success += 1
+                            # 同步到数据库
+                            self._gui_sync_to_db(original_path, {
+                                "audio_recognized": True,
+                                "srt_path": result_path,
+                            }, "audio")
                         else:
                             print(f"  [警告] 音频识别无结果")
                             failed += 1
@@ -1663,10 +1727,12 @@ class TitleClassifierApp(tk.Tk):
         else:
             self._debug_enabled = False
 
-        # 定义完成回调，用于打开调试窗口
+        # 定义完成回调，用于打开调试窗口 + 同步数据库
         def on_vision_complete():
             if getattr(self, '_debug_enabled', False):
                 self._open_latest_debug_dir()
+            # 同步视觉识别结果到数据库
+            self._sync_csv_to_db(csv)
 
         self._run_command(cmd, callback=on_vision_complete)
 
@@ -1993,7 +2059,11 @@ class TitleClassifierApp(tk.Tk):
         if self.s2_dry_run_var.get():
             cmd.append("--dry-run")
 
-        self._run_command(cmd)
+        def on_rename_complete():
+            # 同步重命名结果到数据库
+            self._sync_csv_to_db(csv)
+
+        self._run_command(cmd, callback=on_rename_complete)
 
 
 def main():
