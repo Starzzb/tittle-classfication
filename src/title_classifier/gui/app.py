@@ -328,11 +328,14 @@ class TitleClassifierApp(tk.Tk):
 
         confirm_btn = ttk.Button(btn_frame, text="确认写入CSV", command=self._confirm_s1b_results)
         confirm_btn.pack(side=tk.LEFT, padx=4)
-        ToolTip(confirm_btn, "将优化结果写入CSV文件\n\n"
-                "写入内容：\n"
-                "- final_name：优化后的标题（自动加中括号）\n"
-                "- needs_vision：可修改的分类标记\n"
-                "- review_status：设置为'待确认'")
+        ToolTip(confirm_btn, "将已修改的标题写入CSV文件\n\n"
+                "只写入通过以下方式修改过的行：\n"
+                "- AI优化选中行/全部\n"
+                "- 双击编辑标题\n"
+                "- 右键采用原标题\n\n"
+                "写入格式: [关键词]_原标题\n"
+                "未修改的行不会被影响\n\n"
+                "注意：needs_vision/audio 切换会即时写入，不需要点此按钮")
 
         # 预览表格
         preview_frame = ttk.LabelFrame(tab, text="优化结果预览（右键菜单可编辑）")
@@ -356,14 +359,31 @@ class TitleClassifierApp(tk.Tk):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.s1b_tree.pack(fill=tk.BOTH, expand=True)
 
-        # 右键菜单
+        # 右键菜单（按功能分组）
         self.s1b_context_menu = tk.Menu(self, tearoff=0)
-        self.s1b_context_menu.add_command(label="编辑选中行", command=self._s1b_edit)
+
+        # 标题操作组
+        self.s1b_context_menu.add_command(label="编辑标题", command=self._s1b_edit)
         self.s1b_context_menu.add_command(label="采用原标题", command=self._s1b_use_original)
+        self.s1b_context_menu.add_command(label="重置为原标题（取消优化）", command=self._s1b_reset_to_original)
+
         self.s1b_context_menu.add_separator()
-        self.s1b_context_menu.add_command(label="切换 needs_vision (TRUE/FALSE)", command=self._s1b_toggle_needs_vision)
-        self.s1b_context_menu.add_command(label="切换 audio_recognized (TRUE/FALSE)", command=self._s1b_toggle_audio_recognized)
+
+        # 状态切换组（即时生效）
+        self.s1b_ctx_vision = tk.StringVar(value="需要视觉识别: -")
+        self.s1b_ctx_audio = tk.StringVar(value="音频已识别: -")
+        self.s1b_context_menu.add_command(
+            labelvariable=self.s1b_ctx_vision,
+            command=self._s1b_toggle_needs_vision
+        )
+        self.s1b_context_menu.add_command(
+            labelvariable=self.s1b_ctx_audio,
+            command=self._s1b_toggle_audio_recognized
+        )
+
         self.s1b_context_menu.add_separator()
+
+        # 其他
         self.s1b_context_menu.add_command(label="删除选中行", command=self._s1b_delete)
 
         self.s1b_tree.bind("<Button-3>", self._s1b_show_context_menu)
@@ -371,6 +391,10 @@ class TitleClassifierApp(tk.Tk):
 
         # 存储优化结果
         self.s1b_results = {}
+        self.s1b_modified = set()  # 跟踪已修改的 item_id
+
+        # 修改行高亮样式
+        self.s1b_tree.tag_configure("modified", background="#e6f3ff")
 
     def _build_stage1c_audio_tab(self):
         """构建Stage1c音频识别标签页（为视觉识别做准备）"""
@@ -915,6 +939,7 @@ class TitleClassifierApp(tk.Tk):
             for item in self.s1b_tree.get_children():
                 self.s1b_tree.delete(item)
             self.s1b_results.clear()
+            self.s1b_modified.clear()
 
             # 是否过滤needs_vision
             filter_vision = self.s1b_filter_vision_var.get()
@@ -998,10 +1023,12 @@ class TitleClassifierApp(tk.Tk):
                 # 在主线程中更新GUI
                 def update_gui():
                     for (item_id, original, needs_vision, _), refined in zip(items_to_refine, refined_stems):
-                        # 显示时保持原始标题，final_name使用优化结果（不包含扩展名）
-                        self.s1b_tree.item(item_id, values=(original, needs_vision, refined))
+                        # 保留 audio_recognized 列
+                        audio_recognized = self.s1b_tree.item(item_id, "values")[2]
+                        self.s1b_tree.item(item_id, values=(original, needs_vision, audio_recognized, refined))
                         if item_id in self.s1b_results:
                             self.s1b_results[item_id]["final_name"] = refined
+                        self._mark_modified(item_id)
                     print(f"[完成] 已优化 {total} 条记录")
                     self._set_refine_buttons_state("normal")
 
@@ -1062,10 +1089,12 @@ class TitleClassifierApp(tk.Tk):
                 # 在主线程中更新GUI
                 def update_gui():
                     for (item_id, original, needs_vision, _), refined in zip(items_to_refine, refined_stems):
-                        # 显示时保持原始标题，final_name使用优化结果（不包含扩展名）
-                        self.s1b_tree.item(item_id, values=(original, needs_vision, refined))
+                        # 保留 audio_recognized 列
+                        audio_recognized = self.s1b_tree.item(item_id, "values")[2]
+                        self.s1b_tree.item(item_id, values=(original, needs_vision, audio_recognized, refined))
                         if item_id in self.s1b_results:
                             self.s1b_results[item_id]["final_name"] = refined
+                        self._mark_modified(item_id)
                     print(f"[完成] 已优化 {total} 条记录")
                     self._set_refine_buttons_state("normal")
 
@@ -1093,12 +1122,28 @@ class TitleClassifierApp(tk.Tk):
                                 if isinstance(btn, ttk.Button) and btn.cget("text") in ["AI优化选中行", "AI优化全部"]:
                                     btn.configure(state=state)
 
+    def _mark_modified(self, item_id):
+        """标记行为已修改（高亮 + 加入 modified 集合）"""
+        self.s1b_modified.add(item_id)
+        self.s1b_tree.item(item_id, tags=("modified",))
+
     def _s1b_show_context_menu(self, event):
-        """显示右键菜单"""
+        """显示右键菜单（动态标签）"""
         item = self.s1b_tree.identify_row(event.y)
-        if item:
-            self.s1b_tree.selection_set(item)
-            self.s1b_context_menu.post(event.x_root, event.y_root)
+        if not item:
+            return
+        self.s1b_tree.selection_set(item)
+        values = self.s1b_tree.item(item, "values")
+
+        # 动态更新状态切换标签
+        nv = values[1]  # needs_vision
+        ar = values[2]  # audio_recognized
+        nv_next = "FALSE" if nv.upper() == "TRUE" else "TRUE"
+        ar_next = "FALSE" if ar.upper() == "TRUE" else "TRUE"
+        self.s1b_ctx_vision.set(f"需要视觉识别: {nv} → {nv_next}")
+        self.s1b_ctx_audio.set(f"音频已识别: {ar} → {ar_next}")
+
+        self.s1b_context_menu.post(event.x_root, event.y_root)
 
     def _s1b_edit(self, event=None):
         """编辑选中项"""
@@ -1125,9 +1170,10 @@ class TitleClassifierApp(tk.Tk):
 
         def confirm():
             new_value = edit_var.get()
-            self.s1b_tree.item(item, values=(values[0], values[1], new_value))  # keep needs_vision
+            self.s1b_tree.item(item, values=(values[0], values[1], values[2], new_value))  # keep all columns
             if item in self.s1b_results:
                 self.s1b_results[item]["final_name"] = new_value
+            self._mark_modified(item)
             dialog.destroy()
 
         ttk.Button(dialog, text="确认", command=confirm).grid(row=2, column=0, columnspan=2, pady=8)
@@ -1142,13 +1188,33 @@ class TitleClassifierApp(tk.Tk):
         values = self.s1b_tree.item(item, "values")
         original = values[0]
         needs_vision = values[1]  # keep needs_vision
+        audio_recognized = values[2]  # keep audio_recognized
         
-        self.s1b_tree.item(item, values=(original, needs_vision, original))
+        self.s1b_tree.item(item, values=(original, needs_vision, audio_recognized, original))
         if item in self.s1b_results:
             self.s1b_results[item]["final_name"] = original
+        self._mark_modified(item)
+
+    def _s1b_reset_to_original(self):
+        """重置为原标题（取消优化，不标记为修改）"""
+        selected = self.s1b_tree.selection()
+        if not selected:
+            return
+
+        for item in selected:
+            values = self.s1b_tree.item(item, "values")
+            original = values[0]
+            needs_vision = values[1]
+            audio_recognized = values[2]
+            self.s1b_tree.item(item, values=(original, needs_vision, audio_recognized, original))
+            if item in self.s1b_results:
+                self.s1b_results[item]["final_name"] = original
+            # 从 modified 中移除（取消优化）
+            self.s1b_modified.discard(item)
+            self.s1b_tree.item(item, tags=())
 
     def _s1b_toggle_needs_vision(self):
-        """切换选中行的needs_vision值"""
+        """切换选中行的needs_vision值（即时写入CSV）"""
         selected = self.s1b_tree.selection()
         if not selected:
             messagebox.showwarning("警告", "请先选择要修改的行")
@@ -1164,10 +1230,12 @@ class TitleClassifierApp(tk.Tk):
                 self.s1b_results[item]["needs_vision"] = new_value.lower()
             count += 1
 
-        print(f"[完成] 已切换 {count} 条记录的needs_vision值")
+        # 即时写入CSV
+        self._s1b_write_toggles_to_csv()
+        print(f"[完成] 已切换 {count} 条记录的needs_vision值（已写入CSV）")
 
     def _s1b_toggle_audio_recognized(self):
-        """切换选中行的audio_recognized值"""
+        """切换选中行的audio_recognized值（即时写入CSV）"""
         selected = self.s1b_tree.selection()
         if not selected:
             messagebox.showwarning("警告", "请先选择要修改的行")
@@ -1183,10 +1251,38 @@ class TitleClassifierApp(tk.Tk):
                 self.s1b_results[item]["audio_recognized"] = new_value.lower()
             count += 1
 
-        print(f"[完成] 已切换 {count} 条记录的audio_recognized值")
+        # 即时写入CSV
+        self._s1b_write_toggles_to_csv()
+        print(f"[完成] 已切换 {count} 条记录的audio_recognized值（已写入CSV）")
+
+    def _s1b_write_toggles_to_csv(self):
+        """将 needs_vision/audio_recognized 的修改即时写入 CSV"""
+        csv_path = self.s1b_csv_var.get()
+        if not Path(csv_path).exists():
+            return
+
+        try:
+            from ..utils.atomic_csv import atomic_write_csv, safe_read_csv
+            fieldnames, rows = safe_read_csv(csv_path)
+            if not rows:
+                return
+
+            for item_id, result in self.s1b_results.items():
+                row_index = result["row_index"]
+                if row_index < len(rows):
+                    nv = result.get("needs_vision", "")
+                    ar = result.get("audio_recognized", "")
+                    if nv:
+                        rows[row_index]["needs_vision"] = nv
+                    if ar:
+                        rows[row_index]["audio_recognized"] = ar
+
+            atomic_write_csv(csv_path, rows, fieldnames)
+        except Exception as e:
+            print(f"[错误] 写入状态失败: {e}")
 
     def _s1b_fill_original_selected(self):
-        """将选中行的原标题填入final_name"""
+        """将选中行的原标题填入final_name（不标记为修改）"""
         selected = self.s1b_tree.selection()
         if not selected:
             messagebox.showwarning("警告", "请先选择要填入的行")
@@ -1196,17 +1292,20 @@ class TitleClassifierApp(tk.Tk):
         for item in selected:
             values = self.s1b_tree.item(item, "values")
             original = values[0]
-            needs_vision = values[1]  # keep needs_vision
-            audio_recognized = values[2]  # keep audio_recognized
+            needs_vision = values[1]
+            audio_recognized = values[2]
             self.s1b_tree.item(item, values=(original, needs_vision, audio_recognized, original))
             if item in self.s1b_results:
                 self.s1b_results[item]["final_name"] = original
+            # 从 modified 中移除（批量重置）
+            self.s1b_modified.discard(item)
+            self.s1b_tree.item(item, tags=())
             count += 1
 
         print(f"[完成] 已将 {count} 条记录的final_name设为原标题")
 
     def _s1b_fill_original_all(self):
-        """将所有行的原标题填入final_name"""
+        """将所有行的原标题填入final_name（不标记为修改）"""
         all_items = self.s1b_tree.get_children()
         if not all_items:
             messagebox.showwarning("警告", "表格为空")
@@ -1219,10 +1318,14 @@ class TitleClassifierApp(tk.Tk):
         for item in all_items:
             values = self.s1b_tree.item(item, "values")
             original = values[0]
-            needs_vision = values[1]  # keep needs_vision
-            self.s1b_tree.item(item, values=(original, needs_vision, original))
+            needs_vision = values[1]
+            audio_recognized = values[2]
+            self.s1b_tree.item(item, values=(original, needs_vision, audio_recognized, original))
             if item in self.s1b_results:
                 self.s1b_results[item]["final_name"] = original
+            # 从 modified 中移除（批量重置）
+            self.s1b_modified.discard(item)
+            self.s1b_tree.item(item, tags=())
             count += 1
 
         print(f"[完成] 已将 {count} 条记录的final_name设为原标题")
@@ -1237,32 +1340,38 @@ class TitleClassifierApp(tk.Tk):
         self.s1b_tree.delete(item)
         if item in self.s1b_results:
             del self.s1b_results[item]
+        self.s1b_modified.discard(item)
 
     def _confirm_s1b_results(self):
-        """确认写入优化结果到CSV"""
+        """确认写入优化结果到CSV（只写已修改行的 final_name）"""
         csv_path = self.s1b_csv_var.get()
         if not Path(csv_path).exists():
             messagebox.showwarning("警告", "CSV文件不存在")
             return
 
-        if not self.s1b_results:
-            messagebox.showwarning("警告", "没有优化结果可写入")
+        if not self.s1b_modified:
+            messagebox.showwarning("警告", "没有已修改的行可写入\n\n"
+                                 "提示：只有通过AI优化、编辑、采用原标题 修改过的行才会被写入")
             return
 
-        if not messagebox.askyesno("确认", "确定要将优化结果写入CSV吗？\n\n写入格式: [final_name]"):
+        count = len(self.s1b_modified)
+        if not messagebox.askyesno("确认", f"确定要将 {count} 条已修改的标题写入CSV吗？\n\n"
+                                   "写入格式: [关键词]_原标题\n"
+                                   "注意：未修改的行不会被影响"):
             return
 
         try:
-            import csv
-            # 读取CSV
-            with open(csv_path, "r", encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f)
-                fieldnames = list(reader.fieldnames)
-                rows = list(reader)
+            from ..utils.atomic_csv import atomic_write_csv, safe_read_csv
+            fieldnames, rows = safe_read_csv(csv_path)
+            if not rows:
+                return
 
-            # 更新final_name（自动加中括号）和needs_vision
+            # 只处理已修改的行
             updated = 0
-            for item_id, result in self.s1b_results.items():
+            for item_id in self.s1b_modified:
+                if item_id not in self.s1b_results:
+                    continue
+                result = self.s1b_results[item_id]
                 row_index = result["row_index"]
                 if row_index < len(rows):
                     final_name = result["final_name"]
@@ -1270,22 +1379,16 @@ class TitleClassifierApp(tk.Tk):
                     if final_name and not final_name.startswith("["):
                         final_name = f"[{final_name}]"
                     rows[row_index]["final_name"] = final_name
-                    
-                    # 更新needs_vision
-                    needs_vision = result.get("needs_vision", "")
-                    if needs_vision:
-                        rows[row_index]["needs_vision"] = needs_vision
-                    
-                    # 更新audio_recognized
-                    audio_recognized = result.get("audio_recognized", "")
-                    if audio_recognized:
-                        rows[row_index]["audio_recognized"] = audio_recognized
-                    
                     updated += 1
 
             # 保存CSV（原子化写入）
-            from ..utils.atomic_csv import atomic_write_csv
             atomic_write_csv(csv_path, rows, fieldnames)
+
+            # 清空 modified 集合
+            self.s1b_modified.clear()
+            # 清除高亮
+            for item_id in self.s1b_tree.get_children():
+                self.s1b_tree.item(item_id, tags=())
 
             print(f"[完成] 已更新 {updated} 条记录")
             messagebox.showinfo("完成", f"已更新 {updated} 条记录")
