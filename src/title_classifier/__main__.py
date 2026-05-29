@@ -217,11 +217,9 @@ def cmd_vision(args):
             print(f"  [错误] {e}")
             failed += 1
 
-        # 每处理完一条立即保存CSV
-        with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows)
+        # 每处理完一条立即保存CSV（原子化写入）
+        from .utils.atomic_csv import atomic_write_csv
+        atomic_write_csv(csv_path, rows, fieldnames)
 
     print(f"\n[统计]")
     print(f"  成功: {success}")
@@ -358,11 +356,9 @@ def cmd_audio(args):
             print(f"  [错误] {e}")
             failed += 1
 
-        # 每处理完一条立即保存CSV
-        with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows)
+        # 每处理完一条立即保存CSV（原子化写入）
+        from .utils.atomic_csv import atomic_write_csv
+        atomic_write_csv(csv_path, rows, fieldnames)
 
     print(f"\n[统计]")
     print(f"  成功: {success}")

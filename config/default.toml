@@ -88,14 +88,14 @@ entropy_threshold = 0.8
 
 [audio.vad]
 enabled = true
-min_speech_ms = 150
-min_silence_ms = 80
-merge_gap = 0.8
+min_speech_ms = 250
+min_silence_ms = 350
+merge_gap = 1.5
 min_keep_duration = 1.0
 max_chunk = 25.0
-long_gap = 2.0
+long_gap = 3.0
 min_duration = 1.0
-min_speech_ratio = 0.4
+min_speech_ratio = 0.3
 
 [audio.postprocess]
 enabled = false

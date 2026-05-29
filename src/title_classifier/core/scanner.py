@@ -35,6 +35,11 @@ def is_already_classified(name: str) -> bool:
     return True
 
 
+def strip_bracket_prefix(name: str) -> str:
+    """去除文件名开头的 [关键词]_ 前缀，还原干净文件名"""
+    return re.sub(r"^\[[^\]]*\]_?", "", name, count=1)
+
+
 def is_needs_vision(original: str) -> bool:
     """判断是否需要视觉识别"""
     orig = original.strip()
@@ -185,14 +190,22 @@ class Scanner:
         if is_already_classified(name) and not force_reclassify:
             return None
 
-        # 判断是否需要视觉识别
-        needs_vision = is_needs_vision(original_title)
+        # force_reclassify 时：剥离 [keywords]_ 前缀，还原干净文件名重新判断
+        if force_reclassify:
+            clean_name = strip_bracket_prefix(name)
+            clean_title = strip_bracket_prefix(original_title)
+        else:
+            clean_name = name
+            clean_title = original_title
 
-        # 默认填入原标题（去除扩展名）作为final_name
-        final_name = name
+        # 判断是否需要视觉识别（使用干净文件名）
+        needs_vision = is_needs_vision(clean_title)
+
+        # 默认填入干净原标题（去除扩展名）作为final_name
+        final_name = clean_name
 
         return {
-            "original_title": original_title,
+            "original_title": clean_title,
             "original_path": str(file_path),
             "needs_vision": str(needs_vision).lower(),
             "final_name": final_name,  # 默认填入原标题
@@ -215,9 +228,8 @@ class Scanner:
         }
 
     def _save_csv(self, rows: List[Dict], output_file: str, append: bool = False) -> None:
-        """保存CSV文件"""
-        output_path = Path(output_file)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        """保存CSV文件（原子化写入）"""
+        from ..utils.atomic_csv import atomic_write_csv, atomic_append_csv
 
         fieldnames = [
             "original_title", "original_path",
@@ -229,11 +241,9 @@ class Scanner:
             "clip_tags", "clip_tags_json", "clip_confidence", "vision_source",
         ]
 
-        mode = "a" if append else "w"
-        with open(output_path, mode, encoding="utf-8-sig", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            if not append or output_path.stat().st_size == 0:
-                writer.writeheader()
-            writer.writerows(rows)
+        if append:
+            atomic_append_csv(output_file, rows, fieldnames)
+        else:
+            atomic_write_csv(output_file, rows, fieldnames)
 
-        logger.info(f"结果已保存至: {output_path}")
+        logger.info(f"结果已保存至: {output_file}")

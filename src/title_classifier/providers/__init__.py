@@ -447,7 +447,7 @@ def call_vision_api(
         ],
         "temperature": temperature,
         "reasoning": {"enabled": False},
-        "max_tokens": 1024,
+        "max_tokens": 2048,
         "stream": False,
     }
 

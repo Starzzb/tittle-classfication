@@ -34,14 +34,14 @@ DEFAULT_CONFIG = {
     "centroid_max_hz": 4000,       # 频谱重心上限（Hz），高于此为噪音
     "entropy_threshold": 0.8,      # 频谱熵阈值，高于此为噪音
     "vad_enabled": True,           # 是否使用Silero VAD
-    "vad_min_speech_ms": 150,      # VAD最小时长（毫秒）
-    "vad_min_silence_ms": 80,      # VAD最小静音时长（毫秒）
-    "merge_gap": 0.8,              # 第一层：微合并间隙阈值（秒）
+    "vad_min_speech_ms": 250,      # VAD最小时长（毫秒）
+    "vad_min_silence_ms": 350,     # VAD最小静音时长（毫秒）
+    "merge_gap": 1.5,              # 第一层：微合并间隙阈值（秒）
     "min_keep_duration": 1.0,      # 第一层：最小保留时长（秒）
     "max_chunk": 25.0,             # 第二层：语义打包最大块时长（秒）
-    "long_gap": 2.0,               # 第二层：长停顿阈值（秒），超过则强制封口
+    "long_gap": 3.0,               # 第二层：长停顿阈值（秒），超过则强制封口
     "min_duration": 1.0,           # 第三层：最小块时长（秒）
-    "min_speech_ratio": 0.4,       # 第三层：最小语音占比（0-1）
+    "min_speech_ratio": 0.3,       # 第三层：最小语音占比（0-1）
     # 字幕后处理配置
     "postprocess_enabled": True,   # 是否启用字幕后处理
     "max_subtitle_duration": 10,   # 单个字幕最大时长（秒）

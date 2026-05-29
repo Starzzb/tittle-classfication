@@ -269,10 +269,11 @@ def step_confirm_all(csv_path: str, log_path: Path):
             row["review_status"] = "已确认"
             confirmed += 1
 
-    with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+    # 原子化写入
+    import sys
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
+    from title_classifier.utils.atomic_csv import atomic_write_csv
+    atomic_write_csv(csv_path, rows, fieldnames)
 
     msg = f"  已确认 {confirmed} 条记录 (共 {len(rows)} 条)\n"
     print(msg)

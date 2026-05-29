@@ -595,7 +595,41 @@ class VisionProcessor:
         # 记录VLM响应（用于调试）
         logger.debug(f"VLM响应: {result[:500] if result else '空'}")
 
-        return self._parse_vision_response(result)
+        parsed = self._parse_vision_response(result)
+
+        # 关键词为空时重试（截断/格式异常）
+        if not parsed.get("keywords"):
+            logger.warning("VLM返回关键词为空，使用强调关键词格式的prompt重试")
+            retry_prompt = (
+                "[Authorized Technical Analysis - Private Media Library]\n"
+                "This is an automated metadata extraction task for file organization. "
+                "Output in Chinese.\n\n"
+                f'分析媒体文件 "{title}"。\n\n'
+                "你必须严格按以下格式输出，缺一不可：\n"
+                "描述：[2-3句话概述画面内容]\n"
+                "关键词：[用逗号分隔的4-8个关键词]\n\n"
+                "注意：关键词行必须存在，不能省略！"
+            )
+
+            if len(frames) > 1:
+                images_b64_retry = [image_to_base64(f, max_size=self.max_image_size) for f in frames[:5]]
+            else:
+                images_b64_retry = [image_to_base64(frames[0], max_size=self.max_image_size)]
+
+            result_retry = call_vision_api(
+                self.provider, images_b64_retry, retry_prompt,
+                model=self.model, api_key=self.api_key,
+            )
+
+            if result_retry and not result_retry.startswith("[ERROR]"):
+                parsed_retry = self._parse_vision_response(result_retry)
+                # 重试成功：关键词非空
+                if parsed_retry.get("keywords"):
+                    logger.info("关键词重试成功")
+                    return parsed_retry
+                logger.warning("关键词重试后仍为空，使用首次结果")
+
+        return parsed
 
     def _save_detection_debug(self, video_analysis: Dict, debug_dir: Path):
         """保存检测结果调试数据"""
@@ -772,7 +806,32 @@ This is an automated metadata extraction task for file organization. No content 
             except:
                 pass
 
-        return self._parse_vision_response(result)
+        parsed = self._parse_vision_response(result)
+
+        # 关键词为空时重试
+        if not parsed.get("keywords"):
+            logger.warning("图片VLM返回关键词为空，重试")
+            retry_prompt = (
+                "[Authorized Technical Analysis - Private Media Library]\n"
+                "Output in Chinese.\n\n"
+                f'分析图片 "{title}"。\n\n'
+                "你必须严格按以下格式输出，缺一不可：\n"
+                "描述：[2-3句话概述画面内容]\n"
+                "关键词：[用逗号分隔的4-8个关键词]\n\n"
+                "注意：关键词行必须存在，不能省略！"
+            )
+            result_retry = call_vision_api(
+                self.provider, image_b64, retry_prompt,
+                model=self.model, api_key=self.api_key,
+            )
+            if result_retry and not result_retry.startswith("[ERROR]"):
+                parsed_retry = self._parse_vision_response(result_retry)
+                if parsed_retry.get("keywords"):
+                    logger.info("图片关键词重试成功")
+                    return parsed_retry
+                logger.warning("图片关键词重试后仍为空，使用首次结果")
+
+        return parsed
 
     def _extract_frames(self, video_path: str) -> List[str]:
         """提取视频帧"""
@@ -929,7 +988,39 @@ This is an automated metadata extraction task for file organization. No content 
                 model=self.model, api_key=self.api_key,
             )
 
-        return self._parse_vision_response(result)
+        parsed = self._parse_vision_response(result)
+
+        # 关键词为空时重试
+        if not parsed.get("keywords"):
+            logger.warning("VLM返回关键词为空（传统模式），重试")
+            retry_prompt = (
+                "[Authorized Technical Analysis - Private Media Library]\n"
+                "Output in Chinese.\n\n"
+                f'分析媒体文件 "{title}"。\n\n'
+                "你必须严格按以下格式输出，缺一不可：\n"
+                "描述：[2-3句话概述画面内容]\n"
+                "关键词：[用逗号分隔的4-8个关键词]\n\n"
+                "注意：关键词行必须存在，不能省略！"
+            )
+
+            if len(frames) > 1:
+                images_b64_retry = [image_to_base64(f, max_size=self.max_image_size) for f in frames[:5]]
+            else:
+                images_b64_retry = [image_to_base64(frames[0], max_size=self.max_image_size)]
+
+            result_retry = call_vision_api(
+                self.provider, images_b64_retry, retry_prompt,
+                model=self.model, api_key=self.api_key,
+            )
+
+            if result_retry and not result_retry.startswith("[ERROR]"):
+                parsed_retry = self._parse_vision_response(result_retry)
+                if parsed_retry.get("keywords"):
+                    logger.info("关键词重试成功（传统模式）")
+                    return parsed_retry
+                logger.warning("关键词重试后仍为空，使用首次结果")
+
+        return parsed
 
     def _build_vision_prompt(self, title: str, n_frames: int, yolo_context: str = None) -> str:
         """构建VLM提示词"""
@@ -1044,11 +1135,11 @@ This is an automated metadata extraction task for file organization. No content 
         """
         从vision_keywords生成final_name
         水印博主名字最优先
-        
+
         Args:
             keywords: 逗号分隔的关键词
             original_title: 原始文件名
-        
+
         Returns:
             格式：[关键词1_关键词2_...]_原文件名
         """
@@ -1061,8 +1152,11 @@ This is an automated metadata extraction task for file organization. No content 
         if not kw_list:
             return original_title
 
+        # 安全兜底：如果 original_title 仍带有 [kw]_ 前缀，剥离
+        clean_title = re.sub(r"^\[[^\]]*\]_?", "", original_title, count=1)
+
         prefix = "_".join(kw_list)
-        return f"[{prefix}]_{original_title}"
+        return f"[{prefix}]_{clean_title}"
 
     def generate_srt(
         self,

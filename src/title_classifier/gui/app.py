@@ -1283,11 +1283,9 @@ class TitleClassifierApp(tk.Tk):
                     
                     updated += 1
 
-            # 保存CSV
-            with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(rows)
+            # 保存CSV（原子化写入）
+            from ..utils.atomic_csv import atomic_write_csv
+            atomic_write_csv(csv_path, rows, fieldnames)
 
             print(f"[完成] 已更新 {updated} 条记录")
             messagebox.showinfo("完成", f"已更新 {updated} 条记录")
@@ -1405,11 +1403,9 @@ class TitleClassifierApp(tk.Tk):
                         print(f"  [错误] {e}")
                         failed += 1
 
-                    # 每处理完一条立即保存CSV
-                    with open(csv_file, "w", encoding="utf-8-sig", newline="") as f:
-                        writer = csv.DictWriter(f, fieldnames=fieldnames)
-                        writer.writeheader()
-                        writer.writerows(rows)
+                    # 每处理完一条立即保存CSV（原子化写入）
+                    from ..utils.atomic_csv import atomic_write_csv
+                    atomic_write_csv(csv_file, rows, fieldnames)
 
                 print(f"\n[统计]")
                 print(f"  成功: {success}")
@@ -1782,11 +1778,9 @@ class TitleClassifierApp(tk.Tk):
                     row["review_status"] = "已确认"
                     count += 1
 
-            # 保存CSV
-            with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(rows)
+            # 保存CSV（原子化写入）
+            from ..utils.atomic_csv import atomic_write_csv
+            atomic_write_csv(csv_path, rows, fieldnames)
 
             print(f"[完成] 已确认 {count} 条记录")
             messagebox.showinfo("完成", f"已确认 {count} 条记录")
@@ -1820,11 +1814,9 @@ class TitleClassifierApp(tk.Tk):
                     row["final_name"] = ""
                     count += 1
 
-            # 保存CSV
-            with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(rows)
+            # 保存CSV（原子化写入）
+            from ..utils.atomic_csv import atomic_write_csv
+            atomic_write_csv(csv_path, rows, fieldnames)
 
             print(f"[完成] 已清空 {count} 条记录的final_name")
             messagebox.showinfo("完成", f"已清空 {count} 条记录的final_name")
