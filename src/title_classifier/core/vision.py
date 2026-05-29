@@ -1034,6 +1034,10 @@ This is an automated metadata extraction task for file organization. No content 
         # 记录解析结果
         logger.debug(f"解析结果: 描述='{result['description'][:50]}...', 关键词='{result['keywords'][:50]}...'")
         
+        # 调试：如果关键词为空，输出原始响应
+        if not result["keywords"]:
+            logger.warning(f"关键词为空，原始响应前200字: {response[:200]}")
+        
         return result
 
     def generate_final_name(self, keywords: str, original_title: str) -> str:
