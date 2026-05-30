@@ -120,6 +120,11 @@ def cmd_vision(args):
         print("[错误] 初始化失败")
         return
 
+    # 确保YOLO模型已加载到GPU（防止子线程重复加载）
+    if processor.yolo_detector and not processor.yolo_detector._loaded:
+        processor.yolo_detector.load_model()
+    print(f"[就绪] 模型加载完成，开始处理")
+
     # 读取CSV
     with open(csv_path, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
