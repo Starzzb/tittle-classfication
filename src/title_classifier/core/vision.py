@@ -623,7 +623,7 @@ class VisionProcessor:
         return "\n".join(context_lines)
 
     def _call_vlm_comprehensive(self, frames: List[str], title: str, context: str, audio_context: str = "", per_frame_subtitle: str = "") -> Dict:
-        """调用VLM - 全面分析模式，含帧数降级重试"""
+        """调用VLM - 全面分析模式，失败重试一次"""
         prompt = self._build_comprehensive_prompt(title, len(frames), context, audio_context, per_frame_subtitle)
 
         if len(frames) > 1:
@@ -633,28 +633,11 @@ class VisionProcessor:
                 model=self.model, api_key=self.api_key,
             )
 
-            # 多帧失败或响应为空时降级：减少帧数重试
-            need_fallback = result.startswith("[ERROR]") or not result.strip()
-            if need_fallback and len(frames) > 2:
-                reduced = max(2, len(frames) // 2)
-                logger.warning(f"多帧VLM调用失败(响应为空或错误)，降级重试: {len(frames)}帧 → {reduced}帧")
-                step = len(frames) / reduced
-                sampled = [frames[int(i * step)] for i in range(reduced)]
-                images_b64 = [image_to_base64(f, max_size=self.max_image_size) for f in sampled]
-                prompt_reduced = self._build_comprehensive_prompt(title, reduced, context, audio_context, per_frame_subtitle)
+            # 失败时重试一次（同样帧数）
+            if result.startswith("[ERROR]") or not result.strip():
+                logger.warning(f"VLM调用失败，重试一次: {len(frames)}帧")
                 result = call_vision_api(
-                    self.provider, images_b64, prompt_reduced,
-                    model=self.model, api_key=self.api_key,
-                )
-
-            # 仍然失败，降级到单帧
-            need_fallback = result.startswith("[ERROR]") or not result.strip()
-            if need_fallback and len(frames) > 1:
-                logger.warning("降级重试仍失败，使用单帧模式")
-                image_b64 = image_to_base64(frames[0], max_size=self.max_image_size)
-                prompt_single = self._build_comprehensive_prompt(title, 1, context, audio_context, per_frame_subtitle)
-                result = call_vision_api(
-                    self.provider, image_b64, prompt_single,
+                    self.provider, images_b64, prompt,
                     model=self.model, api_key=self.api_key,
                 )
         else:
@@ -1024,7 +1007,7 @@ This is an automated metadata extraction task for file organization. No content 
         return "\n".join(context_lines) if context_lines else ""
 
     def _call_vlm(self, frames: List[str], title: str, yolo_context: str = None) -> Dict:
-        """调用VLM，含帧数降级重试"""
+        """调用VLM，失败重试一次"""
         prompt = self._build_vision_prompt(title, len(frames), yolo_context)
 
         if len(frames) > 1:
@@ -1034,28 +1017,11 @@ This is an automated metadata extraction task for file organization. No content 
                 model=self.model, api_key=self.api_key,
             )
 
-            # 多帧失败或响应为空时降级：减少帧数重试
-            need_fallback = result.startswith("[ERROR]") or not result.strip()
-            if need_fallback and len(frames) > 2:
-                reduced = max(2, len(frames) // 2)
-                logger.warning(f"多帧VLM调用失败(响应为空或错误)，降级重试: {len(frames)}帧 → {reduced}帧")
-                step = len(frames) / reduced
-                sampled = [frames[int(i * step)] for i in range(reduced)]
-                images_b64 = [image_to_base64(f, max_size=self.max_image_size) for f in sampled]
-                prompt_reduced = self._build_vision_prompt(title, reduced, yolo_context)
+            # 失败时重试一次（同样帧数）
+            if result.startswith("[ERROR]") or not result.strip():
+                logger.warning(f"VLM调用失败，重试一次: {len(frames)}帧")
                 result = call_vision_api(
-                    self.provider, images_b64, prompt_reduced,
-                    model=self.model, api_key=self.api_key,
-                )
-
-            # 仍然失败，降级到单帧
-            need_fallback = result.startswith("[ERROR]") or not result.strip()
-            if need_fallback and len(frames) > 1:
-                logger.warning("降级重试仍失败，使用单帧模式")
-                image_b64 = image_to_base64(frames[0], max_size=self.max_image_size)
-                prompt_single = self._build_vision_prompt(title, 1, yolo_context)
-                result = call_vision_api(
-                    self.provider, image_b64, prompt_single,
+                    self.provider, images_b64, prompt,
                     model=self.model, api_key=self.api_key,
                 )
         else:

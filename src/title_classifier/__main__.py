@@ -136,17 +136,27 @@ def cmd_vision(args):
         return
 
     # 确保字段存在
-    for col in ["vision_description", "vision_keywords", "final_name", "srt_path"]:
+    for col in ["vision_description", "vision_keywords", "final_name", "srt_path", "vision_failed"]:
         if col not in fieldnames:
             fieldnames.append(col)
 
     # 筛选需要视觉识别的记录
-    pending = [
-        (i, row)
-        for i, row in enumerate(rows)
-        if row.get("needs_vision", "").strip().lower() == "true"
-        and not row.get("vision_keywords", "").strip()
-    ]
+    retry_failed = getattr(args, "retry_failed", False)
+    if retry_failed:
+        # 重试失败行：只处理 vision_failed=true 的行
+        pending = [
+            (i, row)
+            for i, row in enumerate(rows)
+            if row.get("vision_failed", "").strip().lower() == "true"
+        ]
+    else:
+        pending = [
+            (i, row)
+            for i, row in enumerate(rows)
+            if row.get("needs_vision", "").strip().lower() == "true"
+            and not row.get("vision_keywords", "").strip()
+            and row.get("vision_failed", "").strip().lower() != "true"
+        ]
 
     if args.all:
         pending = [
@@ -154,6 +164,7 @@ def cmd_vision(args):
             for i, row in enumerate(rows)
             if row.get("original_path", "").strip()
             and not row.get("vision_keywords", "").strip()
+            and row.get("vision_failed", "").strip().lower() != "true"
         ]
 
     print(f"共 {len(rows)} 条记录，待处理 {len(pending)} 条")
@@ -212,7 +223,11 @@ def cmd_vision(args):
             if "error" in result:
                 with lock:
                     counter["failed"] += 1
+                    rows[row_idx]["vision_failed"] = "true"
                     print(f"  [错误] {result['error']}")
+                    # 保存失败标记到CSV
+                    from .utils.atomic_csv import atomic_write_csv
+                    atomic_write_csv(csv_path, rows, fieldnames)
                 return
 
             with lock:
@@ -220,6 +235,7 @@ def cmd_vision(args):
                 rows[row_idx]["vision_keywords"] = result.get("keywords", "")
                 rows[row_idx]["final_name"] = result.get("final_name", original_title)
                 rows[row_idx]["srt_path"] = result.get("srt_path", "")
+                rows[row_idx]["vision_failed"] = "false"
 
                 video_summary = result.get("video_summary", {})
                 if video_summary:
@@ -565,6 +581,7 @@ def main():
     vision_cmd.add_argument("--all", action="store_true", help="处理所有未识别的文件")
     vision_cmd.add_argument("--debug", action="store_true", help="启用调试模式，保存检测结果和VLM输入输出")
     vision_cmd.add_argument("--debug-dir", default="data/debug", help="调试数据输出目录")
+    vision_cmd.add_argument("--retry-failed", action="store_true", help="重试之前失败的行（vision_failed=true）")
     vision_cmd.set_defaults(func=cmd_vision)
 
     # audio 命令

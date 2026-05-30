@@ -244,6 +244,7 @@ uv run title-classifier vision [选项]
 | `--analysis-step` | 采样间隔秒数（默认2.0） |
 | `--device` | 推理设备（auto/cuda/cpu，默认auto） |
 | `--concurrent` | 并发处理视频数（默认1，推荐3） |
+| `--retry-failed` | 重试之前失败的行（vision_failed=true） |
 | `--all` | 处理所有未识别文件 |
 
 ### rename 命令 - 执行重命名
@@ -845,6 +846,66 @@ uv run --no-sync title-classifier gui
 [general]
 device = "auto"  # auto / cuda / cpu
 ```
+
+### 自动模式与并发
+
+| 设备模式 | YOLO推理 | VLM调用 | 并发数 |
+|----------|----------|---------|--------|
+| auto (有GPU) | GPU串行 | 并发 | 1 |
+| auto (无GPU) | CPU并行 | 并发 | min(cores-1, 4) |
+| cuda | GPU串行 | 并发 | 1 |
+| cpu | CPU并行 | 并发 | min(cores-1, 4) |
+
+- **GPU模式**：CUDA不支持多线程并发推理，YOLO串行执行，VLM API并发调用
+- **CPU模式**：利用多核CPU并行推理，多个视频同时处理
+- **auto模式**：自动检测GPU，选择最优并发策略
+
+### 多任务并行
+
+> **注意**：不能同时运行两个CUDA模式的视觉识别任务，会导致GPU死锁。
+
+可以同时处理多个CSV，但必须使用不同的推理设备：
+
+```bash
+# 终端1：GUI + CUDA模式（处理CSV1）
+uv run --no-sync title-classifier gui
+# 在GUI中选择"推理设备: cuda"，加载CSV1
+
+# 终端2：CLI + CPU模式（处理CSV2）
+uv run --no-sync title-classifier vision -c "data/output/Movies/title_review.csv" --use-yolo --device cpu --concurrent 4 -p gcli
+```
+
+| 终端 | 模式 | 处理速度 | 说明 |
+|------|------|----------|------|
+| 终端1 GUI | CUDA | 快（20ms/帧） | GPU推理，串行YOLO |
+| 终端2 CLI | CPU | 慢（200ms/帧） | CPU多核并行，--concurrent 4 |
+
+也可以两个GUI实例，分别选择不同的推理设备：
+```bash
+# 终端1：GUI选择 cuda
+uv run --no-sync title-classifier gui
+
+# 终端2：GUI选择 cpu
+uv run --no-sync title-classifier gui
+```
+
+### VLM失败处理
+
+当VLM API调用失败时（超时、限流、空响应），系统会：
+
+1. **重试一次**：同样帧数，同样参数
+2. **仍失败则标记**：CSV中 `vision_failed` 列设为 `true`
+3. **跳过失败行**：默认视觉识别会跳过 `vision_failed=true` 的行
+
+**CLI重试失败行：**
+```bash
+uv run --no-sync title-classifier vision -c "data/output/Download/title_review.csv" --use-yolo --retry-failed -p gcli
+```
+
+**GUI重试失败行：**
+- 视觉识别标签页的"重试失败行"按钮
+- 只处理 `vision_failed=true` 的行
+- 成功后自动清除失败标记
 
 ### 设备检测逻辑
 

@@ -893,6 +893,12 @@ class TitleClassifierApp(tk.Tk):
                 "5. 生成描述、关键词、final_name\n"
                 "6. 生成SRT元数据文件")
 
+        retry_btn = ttk.Button(btn_frame, text="重试失败行", command=self._run_vision_retry)
+        retry_btn.pack(side=tk.LEFT, padx=4)
+        ToolTip(retry_btn, "重试之前视觉识别失败的行\n\n"
+                "只处理 vision_failed=true 的行\n"
+                "成功后自动清除失败标记")
+
     def _build_stage2_tab(self):
         """构建Stage2重命名标签页"""
         tab = ttk.Frame(self.notebook)
@@ -1875,6 +1881,54 @@ class TitleClassifierApp(tk.Tk):
             self._sync_csv_to_db(csv)
 
         self._run_command(cmd, callback=on_vision_complete)
+
+    def _run_vision_retry(self):
+        """重试失败的视觉识别行"""
+        csv = self.s1c_csv_var.get()
+        provider = self.s1c_provider_var.get()
+        device = self.s1c_device_var.get()
+
+        cmd = [PYTHON, "-m", "title_classifier", "vision", "-c", csv, "-p", provider]
+
+        # 始终使用YOLO
+        cmd.append("--use-yolo")
+
+        # 推理设备
+        if device and device != "auto":
+            cmd.extend(["--device", device])
+
+        # 并发数：根据设备自动调整
+        if device == "cuda":
+            cmd.extend(["--concurrent", "1"])
+        elif device == "cpu":
+            import os
+            cpu_workers = min(os.cpu_count() - 1, 4)
+            cmd.extend(["--concurrent", str(cpu_workers)])
+
+        # 全面分析模式
+        if self.s1c_comprehensive_var.get():
+            cmd.append("--comprehensive")
+
+        if self.s1c_use_clip_var.get():
+            cmd.append("--use-clip")
+
+        # 添加分析参数
+        analysis_step = self.s1c_analysis_step_var.get()
+        if analysis_step:
+            cmd.extend(["--analysis-step", analysis_step])
+
+        vlm_frames = self.s1c_vlm_frames_var.get()
+        if vlm_frames:
+            cmd.extend(["--vlm-frames", vlm_frames])
+
+        # 重试失败行
+        cmd.append("--retry-failed")
+
+        # 定义完成回调
+        def on_retry_complete():
+            self._sync_csv_to_db(csv)
+
+        self._run_command(cmd, callback=on_retry_complete)
 
     def _update_device_status(self):
         """更新设备状态显示"""

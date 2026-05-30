@@ -275,6 +275,7 @@ class Scanner:
             "clip_tags_json": "",
             "clip_confidence": "",
             "vision_source": "",
+            "vision_failed": "false",
         }
 
     def _save_csv(self, rows: List[Dict], output_file: str, append: bool = False) -> None:
@@ -286,6 +287,7 @@ class Scanner:
             "needs_vision", "final_name", "review_status",
             "audio_recognized", "srt_path",
             "vision_description", "vision_keywords",
+            "vision_failed",
             "human_detected", "detection_confidence", "detection_timestamp", "detection_method",
             "clip_clothing", "clip_action", "clip_hairstyle",
             "clip_tags", "clip_tags_json", "clip_confidence", "vision_source",
