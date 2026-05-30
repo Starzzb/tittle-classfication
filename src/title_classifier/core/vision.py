@@ -270,12 +270,27 @@ class VisionProcessor:
 
         logger.info(f"YOLO分析: {len(timestamps)}个采样点, 模型: {self.yolo_models}")
 
+        # CUDA预热：第一次推理会编译kernel，耗时较长
+        if self.device == "cuda":
+            try:
+                import torch
+                logger.info(f"CUDA显存: {torch.cuda.memory_allocated()/1024**3:.1f}GB / {torch.cuda.get_device_properties(0).total_memory/1024**3:.1f}GB")
+                # 用空tensor预热CUDA
+                _ = torch.zeros(1, device="cuda")
+                del _
+                torch.cuda.empty_cache()
+                logger.info("CUDA预热完成")
+            except Exception as e:
+                logger.warning(f"CUDA预热失败: {e}")
+
         for i, ts in enumerate(timestamps):
             # 提取帧
             frame_path = str(tmp_dir / f"frame_{i:04d}_{ts:.1f}s.jpg")
+            logger.debug(f"[DEBUG] 帧{i}: 开始提取 {ts:.1f}s")
             if not extract_frame(video_path, frame_path, timestamp=str(ts), max_size=400):
                 logger.debug(f"帧提取失败: {frame_path}")
                 continue
+            logger.debug(f"[DEBUG] 帧{i}: 提取完成，开始YOLO推理")
 
             frames.append(frame_path)
 
@@ -284,7 +299,9 @@ class VisionProcessor:
             frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
 
             if frame is not None and self.yolo_detector:
+                logger.debug(f"[DEBUG] 帧{i}: 开始analyze_comprehensive")
                 comprehensive_result = self.yolo_detector.analyze_comprehensive(frame)
+                logger.debug(f"[DEBUG] 帧{i}: analyze_comprehensive完成")
 
                 timeline_entry = {
                     "index": i,

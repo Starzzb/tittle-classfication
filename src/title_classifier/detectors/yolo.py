@@ -380,24 +380,38 @@ class YOLODetector(BaseDetector):
         # 并行运行三个模型
         if "detect" in self._models:
             try:
+                logger.debug("[DEBUG] detect模型开始推理")
                 results["detection"] = self.detect(frame)
+                logger.debug("[DEBUG] detect模型推理完成")
                 results["models_used"].append("detect")
             except Exception as e:
                 logger.warning(f"detect模型推理失败: {e}")
 
         if "pose" in self._models:
             try:
+                logger.debug("[DEBUG] pose模型开始推理")
                 results["pose"] = self.estimate_pose(frame)
+                logger.debug("[DEBUG] pose模型推理完成")
                 results["models_used"].append("pose")
             except Exception as e:
                 logger.warning(f"pose模型推理失败: {e}")
 
         if "segment" in self._models:
             try:
+                logger.debug("[DEBUG] segment模型开始推理")
                 results["segment"] = self.segment_instances(frame)
+                logger.debug("[DEBUG] segment模型推理完成")
                 results["models_used"].append("segment")
             except Exception as e:
                 logger.warning(f"segment模型推理失败: {e}")
+
+        # CUDA显存清理
+        if self.device == "cuda":
+            try:
+                import torch
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
 
         # 合并结果
         results["merged"] = self._merge_results(
