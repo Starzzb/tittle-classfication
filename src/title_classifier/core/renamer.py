@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import List, Dict
 
+from ..utils.file_resolve import resolve_media_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,14 +50,19 @@ class Renamer:
 
             stats["confirmed"] += 1
 
-            # 获取路径
-            original_path = Path(task["original_path"]).resolve()
-            final_name = task.get("final_name", "").strip() or task["original_title"]
+            # 获取路径（Stage2重命名后用final_name回退查找）
+            original_path_str = task.get("original_path", "").strip()
+            original_title = task.get("original_title", "").strip()
+            final_name = task.get("final_name", "").strip() or original_title
 
-            if not original_path.exists():
-                logger.warning(f"文件不存在: {original_path}")
+            resolved = resolve_media_path(original_path_str, final_name, original_title)
+            if not resolved:
+                logger.warning(f"文件不存在: {original_path_str}")
                 stats["error"] += 1
                 continue
+            if resolved != original_path_str:
+                logger.info(f"[路径回退] {Path(original_path_str).name} → {Path(resolved).name}")
+            original_path = Path(resolved).resolve()
 
             # 构建新路径
             new_path = original_path.parent / f"{final_name}{original_path.suffix}"

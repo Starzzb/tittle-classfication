@@ -17,6 +17,7 @@ from ..providers import (
 )
 from ..core.refiner import Refiner
 from ..utils.muxer import SubtitleMuxer
+from ..utils.file_resolve import resolve_media_path
 
 PROJECT_DIR = Path(__file__).parent.parent.parent.parent.resolve()
 PYTHON = sys.executable
@@ -1490,9 +1491,12 @@ class TitleClassifierApp(tk.Tk):
                 row_index = result["row_index"]
                 if row_index < len(rows):
                     final_name = result["final_name"]
-                    # 自动加中括号
-                    if final_name and not final_name.startswith("["):
-                        final_name = f"[{final_name}]"
+                    original_title = result.get("original_title", "")
+                    # 只有 final_name 与原标题不同时才加格式
+                    if final_name and final_name != original_title:
+                        if not final_name.startswith("["):
+                            final_name = f"[{final_name}]"
+                        final_name = f"{final_name}_{original_title}"
                     rows[row_index]["final_name"] = final_name
                     updated += 1
 
@@ -1586,11 +1590,17 @@ class TitleClassifierApp(tk.Tk):
                 for idx, (row_idx, row) in enumerate(pending):
                     original_path = row.get("original_path", "").strip()
                     original_title = row.get("original_title", "").strip()
+                    final_name = row.get("final_name", "").strip()
 
-                    if not original_path or not Path(original_path).exists():
+                    # 解析实际文件路径（Stage2重命名后用final_name回退查找）
+                    resolved = resolve_media_path(original_path, final_name, original_title)
+                    if not resolved:
                         print(f"[{idx+1}/{total}] 跳过（文件不存在）: {original_title[:40]}")
                         failed += 1
                         continue
+                    if resolved != original_path:
+                        print(f"  [路径回退] {Path(original_path).name} → {Path(resolved).name}")
+                    original_path = resolved
 
                     print(f"[{idx+1}/{total}] 处理: {original_title[:40]}")
 
@@ -1847,10 +1857,14 @@ class TitleClassifierApp(tk.Tk):
                 
                 for row in rows:
                     original_path = row.get("original_path", "").strip()
+                    original_title = row.get("original_title", "").strip()
                     final_name = row.get("final_name", "").strip()
                     srt_path = row.get("srt_path", "").strip()
-                    
-                    if not original_path or not Path(original_path).exists():
+
+                    # 解析实际文件路径（Stage2重命名后用final_name回退查找）
+                    original_path = resolve_media_path(original_path, final_name, original_title)
+
+                    if not original_path:
                         continue
                     
                     # 确定字幕文件路径

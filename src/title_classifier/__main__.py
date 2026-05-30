@@ -17,6 +17,7 @@ if sys.platform == "win32":
         pass
 
 from .core import Scanner, Refiner, VisionProcessor, Renamer
+from .utils.file_resolve import resolve_media_path
 
 
 def setup_logging(verbose: bool = False, log_file: str = None):
@@ -166,11 +167,17 @@ def cmd_vision(args):
     for idx, (row_idx, row) in enumerate(pending):
         original_path = row.get("original_path", "").strip()
         original_title = row.get("original_title", "").strip()
+        final_name = row.get("final_name", "").strip()
 
-        if not original_path or not Path(original_path).exists():
+        # 解析实际文件路径（Stage2重命名后用final_name回退查找）
+        resolved = resolve_media_path(original_path, final_name, original_title)
+        if not resolved:
             print(f"[{idx+1}/{total}] 跳过（文件不存在）: {original_title[:40]}")
             failed += 1
             continue
+        if resolved != original_path:
+            print(f"  [路径回退] {Path(original_path).name} → {Path(resolved).name}")
+        original_path = resolved
 
         print(f"[{idx+1}/{total}] 处理: {original_title[:40]}")
 
@@ -318,11 +325,17 @@ def cmd_audio(args):
     for idx, (row_idx, row) in enumerate(pending):
         original_path = row.get("original_path", "").strip()
         original_title = row.get("original_title", "").strip()
+        final_name = row.get("final_name", "").strip()
 
-        if not original_path or not Path(original_path).exists():
+        # 解析实际文件路径（Stage2重命名后用final_name回退查找）
+        resolved = resolve_media_path(original_path, final_name, original_title)
+        if not resolved:
             print(f"[{idx+1}/{total}] 跳过（文件不存在）: {original_title[:40]}")
             failed += 1
             continue
+        if resolved != original_path:
+            print(f"  [路径回退] {Path(original_path).name} → {Path(resolved).name}")
+        original_path = resolved
 
         print(f"[{idx+1}/{total}] 处理: {original_title[:40]}")
 
