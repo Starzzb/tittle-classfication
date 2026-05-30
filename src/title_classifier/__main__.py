@@ -113,6 +113,7 @@ def cmd_vision(args):
         vlm_frames=args.vlm_frames,
         analysis_step=args.analysis_step,
         debug_dir=debug_dir,
+        device=args.device,
     )
 
     if not processor.initialize():
@@ -523,6 +524,7 @@ def main():
     vision_cmd.add_argument("--max-image-size", type=int, default=640, help="图片最大尺寸")
     vision_cmd.add_argument("--vlm-frames", type=int, default=10, help="VLM帧数（由采样间隔决定）")
     vision_cmd.add_argument("--analysis-step", type=float, default=2.0, help="YOLO模式采样间隔（秒，默认2秒）")
+    vision_cmd.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"], help="推理设备（auto=自动检测, cuda=GPU, cpu=仅CPU）")
 
     vision_cmd.add_argument("--all", action="store_true", help="处理所有未识别的文件")
     vision_cmd.add_argument("--debug", action="store_true", help="启用调试模式，保存检测结果和VLM输入输出")

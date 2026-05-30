@@ -664,6 +664,19 @@ class TitleClassifierApp(tk.Tk):
         provider_combo.pack(side=tk.LEFT, padx=4)
         ToolTip(provider_combo, "选择视觉AI服务提供商\n- gcli: Google Gemini（推荐）\n- mimo: 小米MiMo\n- zhipu: 智谱GLM")
 
+        # 推理设备选择
+        device_frame = ttk.LabelFrame(tab, text="推理设备")
+        device_frame.pack(fill=tk.X, padx=4, pady=4)
+
+        self.s1c_device_var = tk.StringVar(value="auto")
+        device_combo = ttk.Combobox(device_frame, textvariable=self.s1c_device_var, values=["auto", "cuda", "cpu"], state="readonly", width=10)
+        device_combo.pack(side=tk.LEFT, padx=4)
+        self.s1c_device_label = ttk.Label(device_frame, text="", foreground="#888888")
+        self.s1c_device_label.pack(side=tk.LEFT, padx=4)
+        ToolTip(device_combo, "推理设备选择\n- auto: 自动检测GPU（推荐）\n- cuda: 强制使用GPU\n- cpu: 强制使用CPU\n\n需要安装CUDA版PyTorch才能使用GPU加速")
+        # 显示当前GPU状态
+        self._update_device_status()
+
         # 检测器选择
         det_frame = ttk.LabelFrame(tab, text="检测器")
         det_frame.pack(fill=tk.X, padx=4, pady=4)
@@ -1783,11 +1796,16 @@ class TitleClassifierApp(tk.Tk):
         """运行视觉识别"""
         csv = self.s1c_csv_var.get()
         provider = self.s1c_provider_var.get()
+        device = self.s1c_device_var.get()
 
         cmd = [PYTHON, "-m", "title_classifier", "vision", "-c", csv, "-p", provider]
 
         # 始终使用YOLO
         cmd.append("--use-yolo")
+
+        # 推理设备
+        if device and device != "auto":
+            cmd.extend(["--device", device])
         
         # 全面分析模式
         if self.s1c_comprehensive_var.get():
@@ -1823,6 +1841,21 @@ class TitleClassifierApp(tk.Tk):
             self._sync_csv_to_db(csv)
 
         self._run_command(cmd, callback=on_vision_complete)
+
+    def _update_device_status(self):
+        """更新设备状态显示"""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                self.s1c_device_label.config(text=f"GPU: {gpu_name} ({gpu_mem:.1f}GB)", foreground="#44aa44")
+            else:
+                self.s1c_device_label.config(text="PyTorch CPU版（无CUDA）", foreground="#cc4444")
+        except ImportError:
+            self.s1c_device_label.config(text="PyTorch未安装", foreground="#cc4444")
+        except Exception:
+            self.s1c_device_label.config(text="", foreground="#888888")
 
     def _open_latest_debug_dir(self):
         """打开最新的调试目录"""

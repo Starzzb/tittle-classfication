@@ -39,6 +39,7 @@ class VisionProcessor:
         debug_dir: str = None,
         covers_dir: str = None,
         db_store=None,
+        device: str = "auto",
     ):
         self.provider = provider
         self.use_yolo = use_yolo
@@ -53,6 +54,7 @@ class VisionProcessor:
         self.debug_dir = debug_dir
         self.covers_dir = covers_dir
         self.db_store = db_store
+        self.device = self._resolve_device(device)
 
         self.provider_config = get_provider_config(provider)
         self.model = self.provider_config.get("default_model", "") if self.provider_config else ""
@@ -62,6 +64,35 @@ class VisionProcessor:
         self.clip_classifier = None
         self.tag_stats = None
 
+    def _resolve_device(self, device: str) -> str:
+        """解析推理设备：auto/cuda/cpu"""
+        if device == "cpu":
+            return "cpu"
+        if device == "cuda":
+            try:
+                import torch
+                if not torch.cuda.is_available():
+                    logger.warning("CUDA不可用，回退到CPU")
+                    return "cpu"
+                return "cuda"
+            except ImportError:
+                logger.warning("PyTorch未安装，使用CPU")
+                return "cpu"
+        # auto模式：自动检测
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                if gpu_mem >= 4:
+                    logger.info(f"检测到GPU ({torch.cuda.get_device_name(0)}, {gpu_mem:.1f}GB)，使用CUDA推理")
+                    return "cuda"
+                else:
+                    logger.warning(f"显存不足 ({gpu_mem:.1f}GB < 4GB)，使用CPU推理")
+                    return "cpu"
+            return "cpu"
+        except ImportError:
+            return "cpu"
+
     def initialize(self) -> bool:
         """初始化检测器"""
         self.tag_stats = TagStatistics()
@@ -70,13 +101,14 @@ class VisionProcessor:
         self.yolo_detector = YOLODetector(
             model_types=self.yolo_models,
             confidence=self.yolo_conf,
+            device=self.device,
         )
         if not self.yolo_detector.load_model():
             logger.error("YOLO模型加载失败")
             return False
 
         if self.use_clip:
-            self.clip_classifier = CLIPClassifier(tag_stats=self.tag_stats)
+            self.clip_classifier = CLIPClassifier(tag_stats=self.tag_stats, device=self.device)
             if not self.clip_classifier.load_model():
                 logger.warning("CLIP模型加载失败，将使用纯云端VLM")
                 self.use_clip = False
@@ -767,7 +799,7 @@ This is an automated metadata extraction task for file organization. No content 
    - 过滤掉网址、域名、@群组名、广告内容，TG，telegram群组信息
    - 其余从画面中提取最显著的视觉特征（4-12个）
    - 参考原标题进行判断，可能存在博主，等信息
-   - 原标题存在的各种中文信息或者博主名称，行为信息判断出重要的价值信息作为关键词
+   - 原标题存在的各种中文信息或者博主名称，行为信息判断出重要的价值信息作为关键词，其中#后为必定保留的标签关键词
 
 格式：
 描述：xxx

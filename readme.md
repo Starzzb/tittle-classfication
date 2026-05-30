@@ -242,6 +242,7 @@ uv run title-classifier vision [选项]
 | `--use-clip` | 使用CLIP预分类 |
 | `--vlm-frames` | VLM帧数（默认10） |
 | `--analysis-step` | 采样间隔秒数（默认2.0） |
+| `--device` | 推理设备（auto/cuda/cpu，默认auto） |
 | `--all` | 处理所有未识别文件 |
 
 ### rename 命令 - 执行重命名
@@ -756,6 +757,70 @@ GUI 所有操作自动同步到数据库：
   }
 }
 ```
+
+---
+
+## GPU 加速
+
+### 支持的模型
+
+| 模型 | GPU加速 | 显存要求 | 加速效果 |
+|------|---------|---------|----------|
+| YOLO (yolov8) | ✅ | >= 4GB | ~10x (200ms→20ms/帧) |
+| CLIP | ✅ | >= 2GB | ~10x (500ms→50ms) |
+| Silero VAD | ❌ CPU | - | 计算量小，无需GPU |
+| VLM (云端API) | - | - | 不受本地设备影响 |
+
+### 安装 CUDA 版 PyTorch
+
+默认安装的 PyTorch 是 CPU 版，需要手动安装 CUDA 版：
+
+```bash
+# 检查当前是否支持CUDA
+python -c "import torch; print(torch.cuda.is_available())"
+
+# 安装 CUDA 12.x 版（推荐）
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# 或 CUDA 11.8 版
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+# 使用 uv
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+```
+
+安装后验证：
+```bash
+python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else 'No GPU')"
+```
+
+### 使用方式
+
+**CLI：**
+```bash
+# 自动检测（推荐）
+title-classifier vision --use-yolo -p gcli
+
+# 强制使用GPU
+title-classifier vision --use-yolo --device cuda -p gcli
+
+# 强制使用CPU
+title-classifier vision --use-yolo --device cpu -p gcli
+```
+
+**GUI：** 视觉识别标签页的"推理设备"下拉框选择 auto/cuda/cpu。
+
+**配置文件** `config/default.toml`：
+```toml
+[general]
+device = "auto"  # auto / cuda / cpu
+```
+
+### 设备检测逻辑
+
+- `auto`（默认）：检测CUDA可用 + 显存>=4GB → 使用GPU，否则CPU
+- `cuda`：强制GPU，CUDA不可用时报错
+- `cpu`：强制CPU
 
 ---
 
