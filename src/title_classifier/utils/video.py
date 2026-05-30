@@ -13,16 +13,34 @@ logger = logging.getLogger(__name__)
 
 def get_video_duration(video_path: str) -> float:
     """获取视频时长（秒）"""
+    # 方式1: ffprobe
     try:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-            capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace",
+            capture_output=True, text=True, timeout=30, encoding="utf-8", errors="replace",
         )
         if result.returncode == 0 and result.stdout.strip():
             return float(result.stdout.strip())
+    except subprocess.TimeoutExpired:
+        logger.warning(f"ffprobe超时，尝试cv2备用方案: {Path(video_path).name}")
     except Exception as e:
-        logger.error(f"获取视频时长失败: {e}")
+        logger.warning(f"ffprobe失败: {e}")
+
+    # 方式2: cv2备用
+    try:
+        import cv2
+        cap = cv2.VideoCapture(video_path)
+        if cap.isOpened():
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+            cap.release()
+            if fps > 0 and frame_count > 0:
+                return frame_count / fps
+    except Exception as e:
+        logger.warning(f"cv2获取时长失败: {e}")
+
+    logger.error(f"获取视频时长失败: {video_path}")
     return 0.0
 
 
@@ -41,10 +59,12 @@ def extract_frame(
     output_path: str,
     timestamp: str = None,
     max_size: int = 800,
+    duration: float = None,
 ) -> bool:
     """提取视频帧并压缩"""
     try:
-        duration = get_video_duration(video_path)
+        if duration is None:
+            duration = get_video_duration(video_path)
 
         if timestamp is None:
             ts_seconds = duration / 4 if duration > 0 else 30.0

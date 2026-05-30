@@ -287,7 +287,7 @@ class VisionProcessor:
             # 提取帧
             frame_path = str(tmp_dir / f"frame_{i:04d}_{ts:.1f}s.jpg")
             logger.debug(f"[DEBUG] 帧{i}: 开始提取 {ts:.1f}s")
-            if not extract_frame(video_path, frame_path, timestamp=str(ts), max_size=400):
+            if not extract_frame(video_path, frame_path, timestamp=str(ts), max_size=400, duration=duration):
                 logger.debug(f"帧提取失败: {frame_path}")
                 continue
             logger.debug(f"[DEBUG] 帧{i}: 提取完成，开始YOLO推理")
@@ -807,16 +807,15 @@ This is an automated metadata extraction task for file organization. No content 
 结合所有帧，回答三个问题：
 1. 图中的人在干什么？（动作/行为）
 2. 穿的什么？（服装/外观特征）
-3. 在哪里？（场景环境）
+3. 在哪里？（有什么）
 
 【输出要求】
-1. 描述（2-3句话）：综合所有帧，概述画面内容
-2. 关键词（4-8个，逗号分隔）：
+1. 描述（2-4句话）：综合所有帧，概述画面内容
+2. 关键词（4-12个，逗号分隔）：
    - 如果画面中有水印/博主名字，必须放在第一个
    - 过滤掉网址、域名、@群组名、广告内容，TG，telegram群组信息
-   - 其余从画面中提取最显著的视觉特征（4-12个）
-   - 参考原标题进行判断，可能存在博主，等信息
-   - 原标题存在的各种中文信息或者博主名称，行为信息判断出重要的价值信息作为关键词，其中#后为必定保留的标签关键词
+   - 其余从画面中提取最显著的视觉特征
+   - 参考原标题进行判断，可能存在博主，等信息，原标题存在的各种中文信息或者博主名称，行为信息判断出重要的价值信息作为关键词
 
 格式：
 描述：xxx
