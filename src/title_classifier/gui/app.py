@@ -406,6 +406,39 @@ class TitleClassifierApp(tk.Tk):
                 "未修改的行不会被影响\n\n"
                 "注意：needs_vision/audio 切换会即时写入，不需要点此按钮")
 
+        # 批量操作栏
+        batch_frame = ttk.Frame(tab)
+        batch_frame.pack(fill=tk.X, padx=4, pady=2)
+
+        ttk.Label(batch_frame, text="批量操作:").pack(side=tk.LEFT, padx=(0, 4))
+
+        set_vision_btn = ttk.Button(batch_frame, text="选中行→需要视觉", command=lambda: self._s1b_batch_needs_vision("TRUE"))
+        set_vision_btn.pack(side=tk.LEFT, padx=2)
+        ToolTip(set_vision_btn, "将选中行的 needs_vision 设为 TRUE")
+
+        unset_vision_btn = ttk.Button(batch_frame, text="选中行→不需要视觉", command=lambda: self._s1b_batch_needs_vision("FALSE"))
+        unset_vision_btn.pack(side=tk.LEFT, padx=2)
+        ToolTip(unset_vision_btn, "将选中行的 needs_vision 设为 FALSE")
+
+        invert_vision_btn = ttk.Button(batch_frame, text="选中行→反选", command=lambda: self._s1b_batch_needs_vision("INVERT"))
+        invert_vision_btn.pack(side=tk.LEFT, padx=2)
+        ToolTip(invert_vision_btn, "反转选中行的 needs_vision 值")
+
+        ttk.Separator(batch_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+
+        select_all_btn = ttk.Button(batch_frame, text="全选", command=self._s1b_select_all)
+        select_all_btn.pack(side=tk.LEFT, padx=2)
+
+        deselect_btn = ttk.Button(batch_frame, text="取消全选", command=self._s1b_deselect_all)
+        deselect_btn.pack(side=tk.LEFT, padx=2)
+
+        # AI优化进度条
+        self.s1b_progress_var = tk.DoubleVar(value=0.0)
+        self.s1b_progress_bar = ttk.Progressbar(batch_frame, variable=self.s1b_progress_var, maximum=100, length=120)
+        self.s1b_progress_bar.pack(side=tk.RIGHT, padx=4)
+        self.s1b_progress_label = ttk.Label(batch_frame, text="", width=12)
+        self.s1b_progress_label.pack(side=tk.RIGHT)
+
         # 预览表格
         preview_frame = ttk.LabelFrame(tab, text="优化结果预览（右键菜单可编辑）")
         preview_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
@@ -1117,20 +1150,22 @@ class TitleClassifierApp(tk.Tk):
             items_to_refine.append((item_id, original, needs_vision, stem))
 
         total = len(items_to_refine)
-        print(f"[开始] 正在优化 {total} 条记录（每5条一批）...")
+        print(f"[开始] 正在优化 {total} 条记录（并发批次）...")
 
         # 禁用按钮防止重复点击
         self._set_refine_buttons_state("disabled")
+        self.s1b_progress_var.set(0)
+        self.s1b_progress_label.config(text="0%")
 
         def run_refine():
             try:
                 refiner = Refiner(provider=provider)
 
-                # 定义进度回调
+                # 进度回调：更新进度条
                 def on_progress(current, total_count, title):
-                    batch_num = current // 5 + 1
-                    total_batches = (total_count + 4) // 5
-                    self.after(0, lambda: print(f"  [批次 {batch_num}/{total_batches}] 正在处理: {title[:40]}..."))
+                    pct = current / total_count * 100
+                    self.after(0, lambda: self.s1b_progress_var.set(pct))
+                    self.after(0, lambda: self.s1b_progress_label.config(text=f"{pct:.0f}%"))
 
                 # 批量优化（发送去除扩展名的标题）
                 stems = [t[3] for t in items_to_refine]
@@ -1147,6 +1182,8 @@ class TitleClassifierApp(tk.Tk):
                         self._mark_modified(item_id)
                     print(f"[完成] 已优化 {total} 条记录")
                     self._set_refine_buttons_state("normal")
+                    self.s1b_progress_var.set(100)
+                    self.s1b_progress_label.config(text="100%")
 
                 self.after(0, update_gui)
 
@@ -1155,6 +1192,7 @@ class TitleClassifierApp(tk.Tk):
                     print(f"[错误] AI优化失败: {e}")
                     messagebox.showerror("错误", f"AI优化失败: {e}")
                     self._set_refine_buttons_state("normal")
+                    self.s1b_progress_label.config(text="失败")
                 self.after(0, show_error)
 
         # 在后台线程中执行
@@ -1183,20 +1221,22 @@ class TitleClassifierApp(tk.Tk):
             stem = Path(original).stem
             items_to_refine.append((item_id, original, needs_vision, stem))
 
-        print(f"[开始] 正在优化 {total} 条记录（每5条一批）...")
+        print(f"[开始] 正在优化 {total} 条记录（并发批次）...")
 
         # 禁用按钮防止重复点击
         self._set_refine_buttons_state("disabled")
+        self.s1b_progress_var.set(0)
+        self.s1b_progress_label.config(text="0%")
 
         def run_refine():
             try:
                 refiner = Refiner(provider=provider)
 
-                # 定义进度回调
+                # 进度回调：更新进度条
                 def on_progress(current, total_count, title):
-                    batch_num = current // 5 + 1
-                    total_batches = (total_count + 4) // 5
-                    self.after(0, lambda: print(f"  [批次 {batch_num}/{total_batches}] 正在处理: {title[:40]}..."))
+                    pct = current / total_count * 100
+                    self.after(0, lambda: self.s1b_progress_var.set(pct))
+                    self.after(0, lambda: self.s1b_progress_label.config(text=f"{pct:.0f}%"))
 
                 # 批量优化（发送去除扩展名的标题）
                 stems = [t[3] for t in items_to_refine]
@@ -1213,6 +1253,8 @@ class TitleClassifierApp(tk.Tk):
                         self._mark_modified(item_id)
                     print(f"[完成] 已优化 {total} 条记录")
                     self._set_refine_buttons_state("normal")
+                    self.s1b_progress_var.set(100)
+                    self.s1b_progress_label.config(text="100%")
 
                 self.after(0, update_gui)
 
@@ -1221,6 +1263,7 @@ class TitleClassifierApp(tk.Tk):
                     print(f"[错误] AI优化失败: {e}")
                     messagebox.showerror("错误", f"AI优化失败: {e}")
                     self._set_refine_buttons_state("normal")
+                    self.s1b_progress_label.config(text="失败")
                 self.after(0, show_error)
 
         # 在后台线程中执行
@@ -1370,6 +1413,41 @@ class TitleClassifierApp(tk.Tk):
         # 即时写入CSV
         self._s1b_write_toggles_to_csv()
         print(f"[完成] 已切换 {count} 条记录的audio_recognized值（已写入CSV）")
+
+    def _s1b_batch_needs_vision(self, mode: str):
+        """批量设置选中行的needs_vision值（TRUE/FALSE/INVERT）"""
+        selected = self.s1b_tree.selection()
+        if not selected:
+            messagebox.showwarning("警告", "请先选择要修改的行")
+            return
+
+        count = 0
+        for item in selected:
+            values = self.s1b_tree.item(item, "values")
+            current = values[1].upper()
+
+            if mode == "INVERT":
+                new_value = "FALSE" if current == "TRUE" else "TRUE"
+            else:
+                new_value = mode
+
+            self.s1b_tree.item(item, values=(values[0], new_value, values[2], values[3]))
+            if item in self.s1b_results:
+                self.s1b_results[item]["needs_vision"] = new_value.lower()
+            count += 1
+
+        self._s1b_write_toggles_to_csv()
+        label = {"TRUE": "需要视觉", "FALSE": "不需要视觉", "INVERT": "反选"}[mode]
+        print(f"[完成] 已将 {count} 条记录设为 {label}（已写入CSV）")
+
+    def _s1b_select_all(self):
+        """全选表格"""
+        for item in self.s1b_tree.get_children():
+            self.s1b_tree.selection_add(item)
+
+    def _s1b_deselect_all(self):
+        """取消全选"""
+        self.s1b_tree.selection_remove(*self.s1b_tree.get_children())
 
     def _s1b_write_toggles_to_csv(self):
         """将 needs_vision/audio_recognized 的修改即时写入 CSV"""
