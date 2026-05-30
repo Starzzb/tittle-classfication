@@ -773,26 +773,38 @@ GUI 所有操作自动同步到数据库：
 
 ### 安装 CUDA 版 PyTorch
 
-默认安装的 PyTorch 是 CPU 版，需要手动安装 CUDA 版：
+> **注意**：首次 `uv sync` 安装的是 **CPU 版** PyTorch（~250MB），不支持 GPU 加速。
+> 需要手动替换为 CUDA 版（~2.4GB）才能使用 GPU。
+
+#### 1. 确认 GPU 和驱动版本
 
 ```bash
-# 检查当前是否支持CUDA
-python -c "import torch; print(torch.cuda.is_available())"
-
-# 安装 CUDA 12.x 版（推荐）
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-
-# 或 CUDA 11.8 版
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-
-# 使用 uv
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+nvidia-smi
 ```
 
-安装后验证：
+查看 `Driver Version` 和 `CUDA Version`：
+- 驱动 >= 525.x → 支持 CUDA 12.x（推荐）
+- 驱动 >= 450.x → 支持 CUDA 11.x
+
+#### 2. 替换为 CUDA 版 PyTorch
+
 ```bash
-python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else 'No GPU')"
+# CUDA 12.x（推荐，约 2.4GB，下载需较长时间）
+uv pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+# 或 CUDA 11.8（约 2.6GB）
+uv pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu118
 ```
+
+> **提示**：加 `--force-reinstall` 是为了强制替换已安装的 CPU 版。如网络慢可尝试挂代理或使用国内镜像。
+
+#### 3. 验证安装
+
+```bash
+uv run python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else 'No GPU')"
+```
+
+返回 `CUDA: True` 即表示安装成功。
 
 ### 使用方式
 
