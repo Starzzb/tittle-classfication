@@ -656,10 +656,18 @@ class TitleClassifierApp(tk.Tk):
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # 鼠标滚轮绑定
+        # 鼠标滚轮绑定：只在鼠标悬停canvas时生效
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _bind_mousewheel(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _unbind_mousewheel(event):
+            canvas.unbind_all("<MouseWheel>")
+
+        canvas.bind("<Enter>", _bind_mousewheel)
+        canvas.bind("<Leave>", _unbind_mousewheel)
 
         # CSV文件
         csv_frame = ttk.LabelFrame(scroll_frame, text="CSV文件")
@@ -1823,7 +1831,10 @@ class TitleClassifierApp(tk.Tk):
         # 推理设备
         if device and device != "auto":
             cmd.extend(["--device", device])
-        
+
+        # 并发数
+        cmd.extend(["--concurrent", "3"])
+
         # 全面分析模式
         if self.s1c_comprehensive_var.get():
             cmd.append("--comprehensive")

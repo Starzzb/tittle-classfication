@@ -243,6 +243,7 @@ uv run title-classifier vision [选项]
 | `--vlm-frames` | VLM帧数（默认10） |
 | `--analysis-step` | 采样间隔秒数（默认2.0） |
 | `--device` | 推理设备（auto/cuda/cpu，默认auto） |
+| `--concurrent` | 并发处理视频数（默认1，推荐3） |
 | `--all` | 处理所有未识别文件 |
 
 ### rename 命令 - 执行重命名

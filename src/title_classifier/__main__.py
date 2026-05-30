@@ -160,32 +160,43 @@ def cmd_vision(args):
     # SRT输出目录
     srt_dir = str(csv_path.parent / "subtitles")
 
-    # 批量处理
-    total = len(pending)
-    success = 0
-    failed = 0
+    # 并发数
+    max_workers = min(getattr(args, "concurrent", 1), len(pending))
+    if max_workers < 1:
+        max_workers = 1
 
-    for idx, (row_idx, row) in enumerate(pending):
+    # 线程安全锁
+    import threading
+    lock = threading.Lock()
+    counter = {"success": 0, "failed": 0, "done": 0}
+    total = len(pending)
+
+    def process_one(idx, row_idx, row):
+        """处理单个视频（线程安全）"""
         original_path = row.get("original_path", "").strip()
         original_title = row.get("original_title", "").strip()
         final_name = row.get("final_name", "").strip()
 
-        # 解析实际文件路径（Stage2重命名后用final_name回退查找）
         resolved = resolve_media_path(original_path, final_name, original_title)
         if not resolved:
-            print(f"[{idx+1}/{total}] 跳过（文件不存在）: {original_title[:40]}")
-            failed += 1
-            continue
+            with lock:
+                counter["done"] += 1
+                counter["failed"] += 1
+                print(f"[{counter['done']}/{total}] 跳过（文件不存在）: {original_title[:40]}")
+            return
         if resolved != original_path:
-            print(f"  [路径回退] {Path(original_path).name} → {Path(resolved).name}")
+            with lock:
+                print(f"  [路径回退] {Path(original_path).name} → {Path(resolved).name}")
         original_path = resolved
 
-        print(f"[{idx+1}/{total}] 处理: {original_title[:40]}")
+        with lock:
+            counter["done"] += 1
+            cur = counter["done"]
+            print(f"[{cur}/{total}] 处理: {original_title[:40]}")
 
         start_time = time.time()
 
         try:
-            # 使用process_and_save一次性处理
             result = processor.process_and_save(
                 video_path=original_path,
                 title=original_title,
@@ -194,44 +205,63 @@ def cmd_vision(args):
             )
 
             if "error" in result:
-                print(f"  [错误] {result['error']}")
-                failed += 1
-                continue
+                with lock:
+                    counter["failed"] += 1
+                    print(f"  [错误] {result['error']}")
+                return
 
-            # 更新CSV行
-            rows[row_idx]["vision_description"] = result.get("description", "")
-            rows[row_idx]["vision_keywords"] = result.get("keywords", "")
-            rows[row_idx]["final_name"] = result.get("final_name", original_title)
-            rows[row_idx]["srt_path"] = result.get("srt_path", "")
+            with lock:
+                rows[row_idx]["vision_description"] = result.get("description", "")
+                rows[row_idx]["vision_keywords"] = result.get("keywords", "")
+                rows[row_idx]["final_name"] = result.get("final_name", original_title)
+                rows[row_idx]["srt_path"] = result.get("srt_path", "")
 
-            # 更新姿态信息
-            video_summary = result.get("video_summary", {})
-            if video_summary:
-                rows[row_idx]["human_detected"] = "true" if video_summary.get("has_person") else "false"
-                rows[row_idx]["detection_method"] = "yolo"
+                video_summary = result.get("video_summary", {})
+                if video_summary:
+                    rows[row_idx]["human_detected"] = "true" if video_summary.get("has_person") else "false"
+                    rows[row_idx]["detection_method"] = "yolo"
 
-            elapsed = time.time() - start_time
-            print(f"  [完成] {elapsed:.1f}秒")
-            print(f"  关键词: {result.get('keywords', '')[:60]}")
-            print(f"  final_name: {result.get('final_name', '')[:60]}")
+                elapsed = time.time() - start_time
+                counter["success"] += 1
+                print(f"  [完成] {elapsed:.1f}秒")
+                print(f"  关键词: {result.get('keywords', '')[:60]}")
+                print(f"  final_name: {result.get('final_name', '')[:60]}")
 
-            # 输出调试目录
-            if args.debug and result.get("debug_dir"):
-                print(f"  [调试] 数据已保存: {result['debug_dir']}")
+                if args.debug and result.get("debug_dir"):
+                    print(f"  [调试] 数据已保存: {result['debug_dir']}")
 
-            success += 1
+                # 每处理完一条立即保存CSV
+                from .utils.atomic_csv import atomic_write_csv
+                atomic_write_csv(csv_path, rows, fieldnames)
 
         except Exception as e:
-            print(f"  [错误] {e}")
-            failed += 1
+            with lock:
+                counter["failed"] += 1
+                print(f"  [错误] {e}")
 
-        # 每处理完一条立即保存CSV（原子化写入）
-        from .utils.atomic_csv import atomic_write_csv
-        atomic_write_csv(csv_path, rows, fieldnames)
+    # 执行
+    if max_workers > 1:
+        print(f"并发模式: {max_workers} 个视频同时处理")
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(process_one, idx, row_idx, row): idx
+                for idx, (row_idx, row) in enumerate(pending)
+            }
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    with lock:
+                        counter["failed"] += 1
+                        print(f"  [线程错误] {e}")
+    else:
+        for idx, (row_idx, row) in enumerate(pending):
+            process_one(idx, row_idx, row)
 
     print(f"\n[统计]")
-    print(f"  成功: {success}")
-    print(f"  失败: {failed}")
+    print(f"  成功: {counter['success']}")
+    print(f"  失败: {counter['failed']}")
     print(f"  结果已保存至: {csv_path}")
 
 
@@ -525,6 +555,7 @@ def main():
     vision_cmd.add_argument("--vlm-frames", type=int, default=10, help="VLM帧数（由采样间隔决定）")
     vision_cmd.add_argument("--analysis-step", type=float, default=2.0, help="YOLO模式采样间隔（秒，默认2秒）")
     vision_cmd.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"], help="推理设备（auto=自动检测, cuda=GPU, cpu=仅CPU）")
+    vision_cmd.add_argument("--concurrent", type=int, default=1, help="并发处理视频数（默认1，推荐3）")
 
     vision_cmd.add_argument("--all", action="store_true", help="处理所有未识别的文件")
     vision_cmd.add_argument("--debug", action="store_true", help="启用调试模式，保存检测结果和VLM输入输出")
