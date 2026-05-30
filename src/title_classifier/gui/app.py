@@ -17,6 +17,7 @@ from ..providers import (
 )
 from ..core.refiner import Refiner
 from ..utils.muxer import SubtitleMuxer
+from ..utils.file_resolve import resolve_media_path
 
 PROJECT_DIR = Path(__file__).parent.parent.parent.parent.resolve()
 PYTHON = sys.executable
@@ -405,6 +406,39 @@ class TitleClassifierApp(tk.Tk):
                 "未修改的行不会被影响\n\n"
                 "注意：needs_vision/audio 切换会即时写入，不需要点此按钮")
 
+        # 批量操作栏
+        batch_frame = ttk.Frame(tab)
+        batch_frame.pack(fill=tk.X, padx=4, pady=2)
+
+        ttk.Label(batch_frame, text="批量操作:").pack(side=tk.LEFT, padx=(0, 4))
+
+        set_vision_btn = ttk.Button(batch_frame, text="选中行→需要视觉", command=lambda: self._s1b_batch_needs_vision("TRUE"))
+        set_vision_btn.pack(side=tk.LEFT, padx=2)
+        ToolTip(set_vision_btn, "将选中行的 needs_vision 设为 TRUE")
+
+        unset_vision_btn = ttk.Button(batch_frame, text="选中行→不需要视觉", command=lambda: self._s1b_batch_needs_vision("FALSE"))
+        unset_vision_btn.pack(side=tk.LEFT, padx=2)
+        ToolTip(unset_vision_btn, "将选中行的 needs_vision 设为 FALSE")
+
+        invert_vision_btn = ttk.Button(batch_frame, text="选中行→反选", command=lambda: self._s1b_batch_needs_vision("INVERT"))
+        invert_vision_btn.pack(side=tk.LEFT, padx=2)
+        ToolTip(invert_vision_btn, "反转选中行的 needs_vision 值")
+
+        ttk.Separator(batch_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+
+        select_all_btn = ttk.Button(batch_frame, text="全选", command=self._s1b_select_all)
+        select_all_btn.pack(side=tk.LEFT, padx=2)
+
+        deselect_btn = ttk.Button(batch_frame, text="取消全选", command=self._s1b_deselect_all)
+        deselect_btn.pack(side=tk.LEFT, padx=2)
+
+        # AI优化进度条
+        self.s1b_progress_var = tk.DoubleVar(value=0.0)
+        self.s1b_progress_bar = ttk.Progressbar(batch_frame, variable=self.s1b_progress_var, maximum=100, length=120)
+        self.s1b_progress_bar.pack(side=tk.RIGHT, padx=4)
+        self.s1b_progress_label = ttk.Label(batch_frame, text="", width=12)
+        self.s1b_progress_label.pack(side=tk.RIGHT)
+
         # 预览表格
         preview_frame = ttk.LabelFrame(tab, text="优化结果预览（右键菜单可编辑）")
         preview_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
@@ -610,8 +644,33 @@ class TitleClassifierApp(tk.Tk):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Stage1c 视觉识别")
 
+        # 可滚动容器
+        canvas = tk.Canvas(tab, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(tab, orient=tk.VERTICAL, command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 鼠标滚轮绑定：只在鼠标悬停canvas时生效
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        def _bind_mousewheel(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _unbind_mousewheel(event):
+            canvas.unbind_all("<MouseWheel>")
+
+        canvas.bind("<Enter>", _bind_mousewheel)
+        canvas.bind("<Leave>", _unbind_mousewheel)
+
         # CSV文件
-        csv_frame = ttk.LabelFrame(tab, text="CSV文件")
+        csv_frame = ttk.LabelFrame(scroll_frame, text="CSV文件")
         csv_frame.pack(fill=tk.X, padx=4, pady=4)
 
         self.s1c_csv_var = tk.StringVar(value=DEFAULT_CSV)
@@ -621,7 +680,7 @@ class TitleClassifierApp(tk.Tk):
         ToolTip(csv_entry, "Stage1生成的CSV文件，视觉识别会分析视频内容并生成描述和关键词")
 
         # Provider选择
-        provider_frame = ttk.LabelFrame(tab, text="AI Provider")
+        provider_frame = ttk.LabelFrame(scroll_frame, text="AI Provider")
         provider_frame.pack(fill=tk.X, padx=4, pady=4)
 
         self.s1c_provider_var = tk.StringVar(value="gcli")
@@ -630,8 +689,21 @@ class TitleClassifierApp(tk.Tk):
         provider_combo.pack(side=tk.LEFT, padx=4)
         ToolTip(provider_combo, "选择视觉AI服务提供商\n- gcli: Google Gemini（推荐）\n- mimo: 小米MiMo\n- zhipu: 智谱GLM")
 
+        # 推理设备选择
+        device_frame = ttk.LabelFrame(scroll_frame, text="推理设备")
+        device_frame.pack(fill=tk.X, padx=4, pady=4)
+
+        self.s1c_device_var = tk.StringVar(value="auto")
+        device_combo = ttk.Combobox(device_frame, textvariable=self.s1c_device_var, values=["auto", "cuda", "cpu"], state="readonly", width=10)
+        device_combo.pack(side=tk.LEFT, padx=4)
+        self.s1c_device_label = ttk.Label(device_frame, text="", foreground="#888888")
+        self.s1c_device_label.pack(side=tk.LEFT, padx=4)
+        ToolTip(device_combo, "推理设备选择\n- auto: 自动检测GPU（推荐）\n- cuda: 强制使用GPU\n- cpu: 强制使用CPU\n\n需要安装CUDA版PyTorch才能使用GPU加速")
+        # 显示当前GPU状态
+        self._update_device_status()
+
         # 检测器选择
-        det_frame = ttk.LabelFrame(tab, text="检测器")
+        det_frame = ttk.LabelFrame(scroll_frame, text="检测器")
         det_frame.pack(fill=tk.X, padx=4, pady=4)
 
         # YOLO检测器说明
@@ -668,7 +740,7 @@ class TitleClassifierApp(tk.Tk):
                 "适用场景：大量图片需要快速分类时使用")
 
         # 分析参数
-        param_frame = ttk.LabelFrame(tab, text="分析参数")
+        param_frame = ttk.LabelFrame(scroll_frame, text="分析参数")
         param_frame.pack(fill=tk.X, padx=4, pady=4)
 
         ttk.Label(param_frame, text="采样间隔(秒):").pack(side=tk.LEFT, padx=4)
@@ -689,7 +761,7 @@ class TitleClassifierApp(tk.Tk):
                 "此参数由采样间隔决定，通常不需要手动设置")
 
         # 选项
-        opt_frame = ttk.LabelFrame(tab, text="选项")
+        opt_frame = ttk.LabelFrame(scroll_frame, text="选项")
         opt_frame.pack(fill=tk.X, padx=4, pady=4)
 
         self.s1c_all_var = tk.BooleanVar()
@@ -709,7 +781,7 @@ class TitleClassifierApp(tk.Tk):
                 "- 处理完成后自动打开调试窗口")
 
         # 废弃提醒
-        deprecation_frame = ttk.Frame(tab)
+        deprecation_frame = ttk.Frame(scroll_frame)
         deprecation_frame.pack(fill=tk.X, padx=4, pady=4)
         deprecation_label = ttk.Label(
             deprecation_frame,
@@ -723,7 +795,7 @@ class TitleClassifierApp(tk.Tk):
                 "请使用 'Stage1c 音频识别' 标签页进行音频识别")
 
         # 字幕封装选项
-        mux_frame = ttk.LabelFrame(tab, text="字幕封装")
+        mux_frame = ttk.LabelFrame(scroll_frame, text="字幕封装")
         mux_frame.pack(fill=tk.X, padx=4, pady=4)
 
         # 提示信息
@@ -807,7 +879,7 @@ class TitleClassifierApp(tk.Tk):
         mux_status.pack(fill=tk.X, padx=4, pady=2)
 
         # 执行按钮
-        btn_frame = ttk.Frame(tab)
+        btn_frame = ttk.Frame(scroll_frame)
         btn_frame.pack(fill=tk.X, padx=4, pady=8)
 
         vision_btn = ttk.Button(btn_frame, text="视觉识别", command=self._run_vision)
@@ -820,6 +892,12 @@ class TitleClassifierApp(tk.Tk):
                 "4. 将帧图片+姿态信息传给VLM\n"
                 "5. 生成描述、关键词、final_name\n"
                 "6. 生成SRT元数据文件")
+
+        retry_btn = ttk.Button(btn_frame, text="重试失败行", command=self._run_vision_retry)
+        retry_btn.pack(side=tk.LEFT, padx=4)
+        ToolTip(retry_btn, "重试之前视觉识别失败的行\n\n"
+                "只处理 vision_failed=true 的行\n"
+                "成功后自动清除失败标记")
 
     def _build_stage2_tab(self):
         """构建Stage2重命名标签页"""
@@ -1116,20 +1194,22 @@ class TitleClassifierApp(tk.Tk):
             items_to_refine.append((item_id, original, needs_vision, stem))
 
         total = len(items_to_refine)
-        print(f"[开始] 正在优化 {total} 条记录（每5条一批）...")
+        print(f"[开始] 正在优化 {total} 条记录（并发批次）...")
 
         # 禁用按钮防止重复点击
         self._set_refine_buttons_state("disabled")
+        self.s1b_progress_var.set(0)
+        self.s1b_progress_label.config(text="0%")
 
         def run_refine():
             try:
                 refiner = Refiner(provider=provider)
 
-                # 定义进度回调
+                # 进度回调：更新进度条
                 def on_progress(current, total_count, title):
-                    batch_num = current // 5 + 1
-                    total_batches = (total_count + 4) // 5
-                    self.after(0, lambda: print(f"  [批次 {batch_num}/{total_batches}] 正在处理: {title[:40]}..."))
+                    pct = current / total_count * 100
+                    self.after(0, lambda: self.s1b_progress_var.set(pct))
+                    self.after(0, lambda: self.s1b_progress_label.config(text=f"{pct:.0f}%"))
 
                 # 批量优化（发送去除扩展名的标题）
                 stems = [t[3] for t in items_to_refine]
@@ -1146,6 +1226,8 @@ class TitleClassifierApp(tk.Tk):
                         self._mark_modified(item_id)
                     print(f"[完成] 已优化 {total} 条记录")
                     self._set_refine_buttons_state("normal")
+                    self.s1b_progress_var.set(100)
+                    self.s1b_progress_label.config(text="100%")
 
                 self.after(0, update_gui)
 
@@ -1154,6 +1236,7 @@ class TitleClassifierApp(tk.Tk):
                     print(f"[错误] AI优化失败: {e}")
                     messagebox.showerror("错误", f"AI优化失败: {e}")
                     self._set_refine_buttons_state("normal")
+                    self.s1b_progress_label.config(text="失败")
                 self.after(0, show_error)
 
         # 在后台线程中执行
@@ -1182,20 +1265,22 @@ class TitleClassifierApp(tk.Tk):
             stem = Path(original).stem
             items_to_refine.append((item_id, original, needs_vision, stem))
 
-        print(f"[开始] 正在优化 {total} 条记录（每5条一批）...")
+        print(f"[开始] 正在优化 {total} 条记录（并发批次）...")
 
         # 禁用按钮防止重复点击
         self._set_refine_buttons_state("disabled")
+        self.s1b_progress_var.set(0)
+        self.s1b_progress_label.config(text="0%")
 
         def run_refine():
             try:
                 refiner = Refiner(provider=provider)
 
-                # 定义进度回调
+                # 进度回调：更新进度条
                 def on_progress(current, total_count, title):
-                    batch_num = current // 5 + 1
-                    total_batches = (total_count + 4) // 5
-                    self.after(0, lambda: print(f"  [批次 {batch_num}/{total_batches}] 正在处理: {title[:40]}..."))
+                    pct = current / total_count * 100
+                    self.after(0, lambda: self.s1b_progress_var.set(pct))
+                    self.after(0, lambda: self.s1b_progress_label.config(text=f"{pct:.0f}%"))
 
                 # 批量优化（发送去除扩展名的标题）
                 stems = [t[3] for t in items_to_refine]
@@ -1212,6 +1297,8 @@ class TitleClassifierApp(tk.Tk):
                         self._mark_modified(item_id)
                     print(f"[完成] 已优化 {total} 条记录")
                     self._set_refine_buttons_state("normal")
+                    self.s1b_progress_var.set(100)
+                    self.s1b_progress_label.config(text="100%")
 
                 self.after(0, update_gui)
 
@@ -1220,6 +1307,7 @@ class TitleClassifierApp(tk.Tk):
                     print(f"[错误] AI优化失败: {e}")
                     messagebox.showerror("错误", f"AI优化失败: {e}")
                     self._set_refine_buttons_state("normal")
+                    self.s1b_progress_label.config(text="失败")
                 self.after(0, show_error)
 
         # 在后台线程中执行
@@ -1370,6 +1458,41 @@ class TitleClassifierApp(tk.Tk):
         self._s1b_write_toggles_to_csv()
         print(f"[完成] 已切换 {count} 条记录的audio_recognized值（已写入CSV）")
 
+    def _s1b_batch_needs_vision(self, mode: str):
+        """批量设置选中行的needs_vision值（TRUE/FALSE/INVERT）"""
+        selected = self.s1b_tree.selection()
+        if not selected:
+            messagebox.showwarning("警告", "请先选择要修改的行")
+            return
+
+        count = 0
+        for item in selected:
+            values = self.s1b_tree.item(item, "values")
+            current = values[1].upper()
+
+            if mode == "INVERT":
+                new_value = "FALSE" if current == "TRUE" else "TRUE"
+            else:
+                new_value = mode
+
+            self.s1b_tree.item(item, values=(values[0], new_value, values[2], values[3]))
+            if item in self.s1b_results:
+                self.s1b_results[item]["needs_vision"] = new_value.lower()
+            count += 1
+
+        self._s1b_write_toggles_to_csv()
+        label = {"TRUE": "需要视觉", "FALSE": "不需要视觉", "INVERT": "反选"}[mode]
+        print(f"[完成] 已将 {count} 条记录设为 {label}（已写入CSV）")
+
+    def _s1b_select_all(self):
+        """全选表格"""
+        for item in self.s1b_tree.get_children():
+            self.s1b_tree.selection_add(item)
+
+    def _s1b_deselect_all(self):
+        """取消全选"""
+        self.s1b_tree.selection_remove(*self.s1b_tree.get_children())
+
     def _s1b_write_toggles_to_csv(self):
         """将 needs_vision/audio_recognized 的修改即时写入 CSV"""
         csv_path = self.s1b_csv_var.get()
@@ -1490,9 +1613,12 @@ class TitleClassifierApp(tk.Tk):
                 row_index = result["row_index"]
                 if row_index < len(rows):
                     final_name = result["final_name"]
-                    # 自动加中括号
-                    if final_name and not final_name.startswith("["):
-                        final_name = f"[{final_name}]"
+                    original_title = result.get("original_title", "")
+                    # 只有 final_name 与原标题不同时才加格式
+                    if final_name and final_name != original_title:
+                        if not final_name.startswith("["):
+                            final_name = f"[{final_name}]"
+                        final_name = f"{final_name}_{original_title}"
                     rows[row_index]["final_name"] = final_name
                     updated += 1
 
@@ -1586,11 +1712,17 @@ class TitleClassifierApp(tk.Tk):
                 for idx, (row_idx, row) in enumerate(pending):
                     original_path = row.get("original_path", "").strip()
                     original_title = row.get("original_title", "").strip()
+                    final_name = row.get("final_name", "").strip()
 
-                    if not original_path or not Path(original_path).exists():
+                    # 解析实际文件路径（Stage2重命名后用final_name回退查找）
+                    resolved = resolve_media_path(original_path, final_name, original_title)
+                    if not resolved:
                         print(f"[{idx+1}/{total}] 跳过（文件不存在）: {original_title[:40]}")
                         failed += 1
                         continue
+                    if resolved != original_path:
+                        print(f"  [路径回退] {Path(original_path).name} → {Path(resolved).name}")
+                    original_path = resolved
 
                     print(f"[{idx+1}/{total}] 处理: {original_title[:40]}")
 
@@ -1695,12 +1827,26 @@ class TitleClassifierApp(tk.Tk):
         """运行视觉识别"""
         csv = self.s1c_csv_var.get()
         provider = self.s1c_provider_var.get()
+        device = self.s1c_device_var.get()
 
         cmd = [PYTHON, "-m", "title_classifier", "vision", "-c", csv, "-p", provider]
 
         # 始终使用YOLO
         cmd.append("--use-yolo")
-        
+
+        # 推理设备
+        if device and device != "auto":
+            cmd.extend(["--device", device])
+
+        # 并发数：根据设备自动调整
+        if device == "cuda":
+            cmd.extend(["--concurrent", "1"])  # GPU串行，避免CUDA死锁
+        elif device == "cpu":
+            import os
+            cpu_workers = min(os.cpu_count() - 1, 4)
+            cmd.extend(["--concurrent", str(cpu_workers)])  # CPU多核并行
+        # auto模式不传concurrent，让CLI自动决定
+
         # 全面分析模式
         if self.s1c_comprehensive_var.get():
             cmd.append("--comprehensive")
@@ -1735,6 +1881,69 @@ class TitleClassifierApp(tk.Tk):
             self._sync_csv_to_db(csv)
 
         self._run_command(cmd, callback=on_vision_complete)
+
+    def _run_vision_retry(self):
+        """重试失败的视觉识别行"""
+        csv = self.s1c_csv_var.get()
+        provider = self.s1c_provider_var.get()
+        device = self.s1c_device_var.get()
+
+        cmd = [PYTHON, "-m", "title_classifier", "vision", "-c", csv, "-p", provider]
+
+        # 始终使用YOLO
+        cmd.append("--use-yolo")
+
+        # 推理设备
+        if device and device != "auto":
+            cmd.extend(["--device", device])
+
+        # 并发数：根据设备自动调整
+        if device == "cuda":
+            cmd.extend(["--concurrent", "1"])
+        elif device == "cpu":
+            import os
+            cpu_workers = min(os.cpu_count() - 1, 4)
+            cmd.extend(["--concurrent", str(cpu_workers)])
+
+        # 全面分析模式
+        if self.s1c_comprehensive_var.get():
+            cmd.append("--comprehensive")
+
+        if self.s1c_use_clip_var.get():
+            cmd.append("--use-clip")
+
+        # 添加分析参数
+        analysis_step = self.s1c_analysis_step_var.get()
+        if analysis_step:
+            cmd.extend(["--analysis-step", analysis_step])
+
+        vlm_frames = self.s1c_vlm_frames_var.get()
+        if vlm_frames:
+            cmd.extend(["--vlm-frames", vlm_frames])
+
+        # 重试失败行
+        cmd.append("--retry-failed")
+
+        # 定义完成回调
+        def on_retry_complete():
+            self._sync_csv_to_db(csv)
+
+        self._run_command(cmd, callback=on_retry_complete)
+
+    def _update_device_status(self):
+        """更新设备状态显示"""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                self.s1c_device_label.config(text=f"GPU: {gpu_name} ({gpu_mem:.1f}GB)", foreground="#44aa44")
+            else:
+                self.s1c_device_label.config(text="PyTorch CPU版（无CUDA）", foreground="#cc4444")
+        except ImportError:
+            self.s1c_device_label.config(text="PyTorch未安装", foreground="#cc4444")
+        except Exception:
+            self.s1c_device_label.config(text="", foreground="#888888")
 
     def _open_latest_debug_dir(self):
         """打开最新的调试目录"""
@@ -1847,10 +2056,14 @@ class TitleClassifierApp(tk.Tk):
                 
                 for row in rows:
                     original_path = row.get("original_path", "").strip()
+                    original_title = row.get("original_title", "").strip()
                     final_name = row.get("final_name", "").strip()
                     srt_path = row.get("srt_path", "").strip()
-                    
-                    if not original_path or not Path(original_path).exists():
+
+                    # 解析实际文件路径（Stage2重命名后用final_name回退查找）
+                    original_path = resolve_media_path(original_path, final_name, original_title)
+
+                    if not original_path:
                         continue
                     
                     # 确定字幕文件路径

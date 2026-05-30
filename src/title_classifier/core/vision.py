@@ -6,6 +6,7 @@ import os
 import re
 import logging
 import tempfile
+import threading
 from pathlib import Path
 from typing import Union, List, Dict, Optional, Tuple
 
@@ -19,6 +20,9 @@ from ..utils.image import compress_image, image_to_base64
 from ..utils.stats import TagStatistics
 
 logger = logging.getLogger(__name__)
+
+# GPU锁：CUDA不支持多线程并发推理，需要串行化
+_gpu_lock = threading.Lock()
 
 
 class VisionProcessor:
@@ -39,6 +43,7 @@ class VisionProcessor:
         debug_dir: str = None,
         covers_dir: str = None,
         db_store=None,
+        device: str = "auto",
     ):
         self.provider = provider
         self.use_yolo = use_yolo
@@ -53,6 +58,7 @@ class VisionProcessor:
         self.debug_dir = debug_dir
         self.covers_dir = covers_dir
         self.db_store = db_store
+        self.device = self._resolve_device(device)
 
         self.provider_config = get_provider_config(provider)
         self.model = self.provider_config.get("default_model", "") if self.provider_config else ""
@@ -62,6 +68,35 @@ class VisionProcessor:
         self.clip_classifier = None
         self.tag_stats = None
 
+    def _resolve_device(self, device: str) -> str:
+        """解析推理设备：auto/cuda/cpu"""
+        if device == "cpu":
+            return "cpu"
+        if device == "cuda":
+            try:
+                import torch
+                if not torch.cuda.is_available():
+                    logger.warning("CUDA不可用，回退到CPU")
+                    return "cpu"
+                return "cuda"
+            except ImportError:
+                logger.warning("PyTorch未安装，使用CPU")
+                return "cpu"
+        # auto模式：自动检测
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                if gpu_mem >= 4:
+                    logger.info(f"检测到GPU ({torch.cuda.get_device_name(0)}, {gpu_mem:.1f}GB)，使用CUDA推理")
+                    return "cuda"
+                else:
+                    logger.warning(f"显存不足 ({gpu_mem:.1f}GB < 4GB)，使用CPU推理")
+                    return "cpu"
+            return "cpu"
+        except ImportError:
+            return "cpu"
+
     def initialize(self) -> bool:
         """初始化检测器"""
         self.tag_stats = TagStatistics()
@@ -70,13 +105,14 @@ class VisionProcessor:
         self.yolo_detector = YOLODetector(
             model_types=self.yolo_models,
             confidence=self.yolo_conf,
+            device=self.device,
         )
         if not self.yolo_detector.load_model():
             logger.error("YOLO模型加载失败")
             return False
 
         if self.use_clip:
-            self.clip_classifier = CLIPClassifier(tag_stats=self.tag_stats)
+            self.clip_classifier = CLIPClassifier(tag_stats=self.tag_stats, device=self.device)
             if not self.clip_classifier.load_model():
                 logger.warning("CLIP模型加载失败，将使用纯云端VLM")
                 self.use_clip = False
@@ -238,12 +274,27 @@ class VisionProcessor:
 
         logger.info(f"YOLO分析: {len(timestamps)}个采样点, 模型: {self.yolo_models}")
 
+        # CUDA预热：第一次推理会编译kernel，耗时较长
+        if self.device == "cuda":
+            try:
+                import torch
+                logger.info(f"CUDA显存: {torch.cuda.memory_allocated()/1024**3:.1f}GB / {torch.cuda.get_device_properties(0).total_memory/1024**3:.1f}GB")
+                # 用空tensor预热CUDA
+                _ = torch.zeros(1, device="cuda")
+                del _
+                torch.cuda.empty_cache()
+                logger.info("CUDA预热完成")
+            except Exception as e:
+                logger.warning(f"CUDA预热失败: {e}")
+
         for i, ts in enumerate(timestamps):
             # 提取帧
             frame_path = str(tmp_dir / f"frame_{i:04d}_{ts:.1f}s.jpg")
-            if not extract_frame(video_path, frame_path, timestamp=str(ts), max_size=400):
+            logger.debug(f"[DEBUG] 帧{i}: 开始提取 {ts:.1f}s")
+            if not extract_frame(video_path, frame_path, timestamp=str(ts), max_size=400, duration=duration):
                 logger.debug(f"帧提取失败: {frame_path}")
                 continue
+            logger.debug(f"[DEBUG] 帧{i}: 提取完成，开始YOLO推理")
 
             frames.append(frame_path)
 
@@ -252,7 +303,14 @@ class VisionProcessor:
             frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
 
             if frame is not None and self.yolo_detector:
-                comprehensive_result = self.yolo_detector.analyze_comprehensive(frame)
+                logger.debug(f"[DEBUG] 帧{i}: 开始analyze_comprehensive")
+                # CUDA推理需要串行化（GPU不支持多线程并发推理）
+                if self.device == "cuda":
+                    with _gpu_lock:
+                        comprehensive_result = self.yolo_detector.analyze_comprehensive(frame)
+                else:
+                    comprehensive_result = self.yolo_detector.analyze_comprehensive(frame)
+                logger.debug(f"[DEBUG] 帧{i}: analyze_comprehensive完成")
 
                 timeline_entry = {
                     "index": i,
@@ -565,7 +623,7 @@ class VisionProcessor:
         return "\n".join(context_lines)
 
     def _call_vlm_comprehensive(self, frames: List[str], title: str, context: str, audio_context: str = "", per_frame_subtitle: str = "") -> Dict:
-        """调用VLM - 全面分析模式，含帧数降级重试"""
+        """调用VLM - 全面分析模式，失败重试一次"""
         prompt = self._build_comprehensive_prompt(title, len(frames), context, audio_context, per_frame_subtitle)
 
         if len(frames) > 1:
@@ -575,28 +633,11 @@ class VisionProcessor:
                 model=self.model, api_key=self.api_key,
             )
 
-            # 多帧失败或响应为空时降级：减少帧数重试
-            need_fallback = result.startswith("[ERROR]") or not result.strip()
-            if need_fallback and len(frames) > 2:
-                reduced = max(2, len(frames) // 2)
-                logger.warning(f"多帧VLM调用失败(响应为空或错误)，降级重试: {len(frames)}帧 → {reduced}帧")
-                step = len(frames) / reduced
-                sampled = [frames[int(i * step)] for i in range(reduced)]
-                images_b64 = [image_to_base64(f, max_size=self.max_image_size) for f in sampled]
-                prompt_reduced = self._build_comprehensive_prompt(title, reduced, context, audio_context, per_frame_subtitle)
+            # 失败时重试一次（同样帧数）
+            if result.startswith("[ERROR]") or not result.strip():
+                logger.warning(f"VLM调用失败，重试一次: {len(frames)}帧")
                 result = call_vision_api(
-                    self.provider, images_b64, prompt_reduced,
-                    model=self.model, api_key=self.api_key,
-                )
-
-            # 仍然失败，降级到单帧
-            need_fallback = result.startswith("[ERROR]") or not result.strip()
-            if need_fallback and len(frames) > 1:
-                logger.warning("降级重试仍失败，使用单帧模式")
-                image_b64 = image_to_base64(frames[0], max_size=self.max_image_size)
-                prompt_single = self._build_comprehensive_prompt(title, 1, context, audio_context, per_frame_subtitle)
-                result = call_vision_api(
-                    self.provider, image_b64, prompt_single,
+                    self.provider, images_b64, prompt,
                     model=self.model, api_key=self.api_key,
                 )
         else:
@@ -758,15 +799,15 @@ This is an automated metadata extraction task for file organization. No content 
 结合所有帧，回答三个问题：
 1. 图中的人在干什么？（动作/行为）
 2. 穿的什么？（服装/外观特征）
-3. 在哪里？（场景环境）
+3. 在哪里？（有什么）
 
 【输出要求】
-1. 描述（2-3句话）：综合所有帧，概述画面内容
-2. 关键词（4-8个，逗号分隔）：
+1. 描述（2-4句话）：综合所有帧，概述画面内容
+2. 关键词（4-12个，逗号分隔）：
    - 如果画面中有水印/博主名字，必须放在第一个
    - 过滤掉网址、域名、@群组名、广告内容，TG，telegram群组信息
-   - 其余从画面中提取最显著的视觉特征（4-12个）
-   - 参考原标题进行判断，可能存在博主，等信息
+   - 其余从画面中提取最显著的视觉特征
+   - 参考原标题进行判断，可能存在博主，等信息，原标题存在的各种中文信息或者博主名称，行为信息判断出重要的价值信息作为关键词
 
 格式：
 描述：xxx
@@ -881,7 +922,11 @@ This is an automated metadata extraction task for file organization. No content 
             data = np.fromfile(frame_path, dtype=np.uint8)
             frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
             if frame is not None:
-                pose_result = self.yolo_detector.estimate_pose(frame)
+                if self.device == "cuda":
+                    with _gpu_lock:
+                        pose_result = self.yolo_detector.estimate_pose(frame)
+                else:
+                    pose_result = self.yolo_detector.estimate_pose(frame)
                 results.append(pose_result)
             else:
                 results.append({"has_person": False})
@@ -962,7 +1007,7 @@ This is an automated metadata extraction task for file organization. No content 
         return "\n".join(context_lines) if context_lines else ""
 
     def _call_vlm(self, frames: List[str], title: str, yolo_context: str = None) -> Dict:
-        """调用VLM，含帧数降级重试"""
+        """调用VLM，失败重试一次"""
         prompt = self._build_vision_prompt(title, len(frames), yolo_context)
 
         if len(frames) > 1:
@@ -972,28 +1017,11 @@ This is an automated metadata extraction task for file organization. No content 
                 model=self.model, api_key=self.api_key,
             )
 
-            # 多帧失败或响应为空时降级：减少帧数重试
-            need_fallback = result.startswith("[ERROR]") or not result.strip()
-            if need_fallback and len(frames) > 2:
-                reduced = max(2, len(frames) // 2)
-                logger.warning(f"多帧VLM调用失败(响应为空或错误)，降级重试: {len(frames)}帧 → {reduced}帧")
-                step = len(frames) / reduced
-                sampled = [frames[int(i * step)] for i in range(reduced)]
-                images_b64 = [image_to_base64(f, max_size=self.max_image_size) for f in sampled]
-                prompt_reduced = self._build_vision_prompt(title, reduced, yolo_context)
+            # 失败时重试一次（同样帧数）
+            if result.startswith("[ERROR]") or not result.strip():
+                logger.warning(f"VLM调用失败，重试一次: {len(frames)}帧")
                 result = call_vision_api(
-                    self.provider, images_b64, prompt_reduced,
-                    model=self.model, api_key=self.api_key,
-                )
-
-            # 仍然失败，降级到单帧
-            need_fallback = result.startswith("[ERROR]") or not result.strip()
-            if need_fallback and len(frames) > 1:
-                logger.warning("降级重试仍失败，使用单帧模式")
-                image_b64 = image_to_base64(frames[0], max_size=self.max_image_size)
-                prompt_single = self._build_vision_prompt(title, 1, yolo_context)
-                result = call_vision_api(
-                    self.provider, image_b64, prompt_single,
+                    self.provider, images_b64, prompt,
                     model=self.model, api_key=self.api_key,
                 )
         else:

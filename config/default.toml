@@ -2,6 +2,7 @@
 output_dir = "data/output"
 log_dir = "data/logs"
 csv_filename = "title_review.csv"
+device = "auto"  # auto / cuda / cpu
 
 [scanner]
 video_extensions = [

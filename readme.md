@@ -242,6 +242,9 @@ uv run title-classifier vision [选项]
 | `--use-clip` | 使用CLIP预分类 |
 | `--vlm-frames` | VLM帧数（默认10） |
 | `--analysis-step` | 采样间隔秒数（默认2.0） |
+| `--device` | 推理设备（auto/cuda/cpu，默认auto） |
+| `--concurrent` | 并发处理视频数（默认1，推荐3） |
+| `--retry-failed` | 重试之前失败的行（vision_failed=true） |
 | `--all` | 处理所有未识别文件 |
 
 ### rename 命令 - 执行重命名
@@ -759,6 +762,159 @@ GUI 所有操作自动同步到数据库：
 
 ---
 
+## GPU 加速
+
+### 支持的模型
+
+| 模型 | GPU加速 | 显存要求 | 加速效果 |
+|------|---------|---------|----------|
+| YOLO (yolov8) | ✅ | >= 4GB | ~10x (200ms→20ms/帧) |
+| CLIP | ✅ | >= 2GB | ~10x (500ms→50ms) |
+| Silero VAD | ❌ CPU | - | 计算量小，无需GPU |
+| VLM (云端API) | - | - | 不受本地设备影响 |
+
+### 安装 CUDA 版 PyTorch
+
+> **注意**：首次 `uv sync` 安装的是 **CPU 版** PyTorch（~250MB），不支持 GPU 加速。
+> 需要手动替换为 CUDA 版（~2.4GB）才能使用 GPU。
+
+#### 1. 确认 GPU 和驱动版本
+
+```bash
+nvidia-smi
+```
+
+查看 `Driver Version` 和 `CUDA Version`：
+- 驱动 >= 525.x → 支持 CUDA 12.x（推荐）
+- 驱动 >= 450.x → 支持 CUDA 11.x
+
+#### 2. 替换为 CUDA 版 PyTorch
+
+```bash
+# CUDA 12.x（推荐，约 2.4GB，下载需较长时间）
+uv pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+# 或 CUDA 11.8（约 2.6GB）
+uv pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu118
+```
+
+> **提示**：加 `--force-reinstall` 是为了强制替换已安装的 CPU 版。如网络慢可尝试挂代理或使用国内镜像。
+
+> **重要**：`uv run` 会自动同步 lockfile，将 CUDA 版覆盖回 CPU 版。安装 CUDA 版后，运行命令时需加 `--no-sync`：
+> ```bash
+> uv run --no-sync title-classifier vision --use-yolo -p gcli
+> uv run --no-sync title-classifier gui
+> ```
+> 或直接使用 `.venv\Scripts\python`：
+> ```bash
+> .venv\Scripts\python -m title_classifier vision --use-yolo -p gcli
+> ```
+
+#### 3. 验证安装
+
+```bash
+uv run --no-sync python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else 'No GPU')"
+```
+
+返回 `CUDA: True` 即表示安装成功。
+
+### 使用方式
+
+> **注意**：安装 CUDA 版后，所有 `uv run` 命令需加 `--no-sync` 防止覆盖。
+
+**CLI：**
+```bash
+# 自动检测（推荐）
+uv run --no-sync title-classifier vision --use-yolo -p gcli
+
+# 强制使用GPU
+uv run --no-sync title-classifier vision --use-yolo --device cuda -p gcli
+
+# 强制使用CPU
+uv run --no-sync title-classifier vision --use-yolo --device cpu -p gcli
+```
+
+**GUI：**
+```bash
+uv run --no-sync title-classifier gui
+```
+
+视觉识别标签页的"推理设备"下拉框选择 auto/cuda/cpu。
+
+**配置文件** `config/default.toml`：
+```toml
+[general]
+device = "auto"  # auto / cuda / cpu
+```
+
+### 自动模式与并发
+
+| 设备模式 | YOLO推理 | VLM调用 | 并发数 |
+|----------|----------|---------|--------|
+| auto (有GPU) | GPU串行 | 并发 | 1 |
+| auto (无GPU) | CPU并行 | 并发 | min(cores-1, 4) |
+| cuda | GPU串行 | 并发 | 1 |
+| cpu | CPU并行 | 并发 | min(cores-1, 4) |
+
+- **GPU模式**：CUDA不支持多线程并发推理，YOLO串行执行，VLM API并发调用
+- **CPU模式**：利用多核CPU并行推理，多个视频同时处理
+- **auto模式**：自动检测GPU，选择最优并发策略
+
+### 多任务并行
+
+> **注意**：不能同时运行两个CUDA模式的视觉识别任务，会导致GPU死锁。
+
+可以同时处理多个CSV，但必须使用不同的推理设备：
+
+```bash
+# 终端1：GUI + CUDA模式（处理CSV1）
+uv run --no-sync title-classifier gui
+# 在GUI中选择"推理设备: cuda"，加载CSV1
+
+# 终端2：CLI + CPU模式（处理CSV2）
+uv run --no-sync title-classifier vision -c "data/output/Movies/title_review.csv" --use-yolo --device cpu --concurrent 4 -p gcli
+```
+
+| 终端 | 模式 | 处理速度 | 说明 |
+|------|------|----------|------|
+| 终端1 GUI | CUDA | 快（20ms/帧） | GPU推理，串行YOLO |
+| 终端2 CLI | CPU | 慢（200ms/帧） | CPU多核并行，--concurrent 4 |
+
+也可以两个GUI实例，分别选择不同的推理设备：
+```bash
+# 终端1：GUI选择 cuda
+uv run --no-sync title-classifier gui
+
+# 终端2：GUI选择 cpu
+uv run --no-sync title-classifier gui
+```
+
+### VLM失败处理
+
+当VLM API调用失败时（超时、限流、空响应），系统会：
+
+1. **重试一次**：同样帧数，同样参数
+2. **仍失败则标记**：CSV中 `vision_failed` 列设为 `true`
+3. **跳过失败行**：默认视觉识别会跳过 `vision_failed=true` 的行
+
+**CLI重试失败行：**
+```bash
+uv run --no-sync title-classifier vision -c "data/output/Download/title_review.csv" --use-yolo --retry-failed -p gcli
+```
+
+**GUI重试失败行：**
+- 视觉识别标签页的"重试失败行"按钮
+- 只处理 `vision_failed=true` 的行
+- 成功后自动清除失败标记
+
+### 设备检测逻辑
+
+- `auto`（默认）：检测CUDA可用 + 显存>=4GB → 使用GPU，否则CPU
+- `cuda`：强制GPU，CUDA不可用时报错
+- `cpu`：强制CPU
+
+---
+
 ## 项目结构
 
 ```
@@ -791,6 +947,7 @@ title-classifier/
 │       │   ├── image.py             # 图片工具
 │       │   ├── audio.py             # 音频处理（VAD分段 + API调用）
 │       │   ├── atomic_csv.py        # 原子化CSV读写（崩溃安全）
+│       │   ├── file_resolve.py      # 文件路径解析（Stage2重命名后回退查找）
 │       │   ├── muxer.py             # 字幕封装（SRT嵌入视频）
 │       │   ├── subtitle_postprocessor.py  # 字幕后处理
 │       │   └── stats.py             # 标签统计
@@ -810,17 +967,27 @@ title-classifier/
 │   └── yolo/                        # YOLO模型（自动下载）
 │
 ├── scripts/
-│   ├── download_models.py           # 一键下载所有模型
-│   ├── download_clip.py
-│   ├── download_yolo_models.py
-│   ├── full_workflow.py             # 完整工作流
-│   ├── workflow_common.py           # 工作流公共模块
-│   ├── workflow_scan_audio.py       # 扫描+音频识别
-│   ├── workflow_vision.py           # 扫描+视觉识别
-│   ├── workflow_reclassify.py       # 强制重分类
-│   ├── workflow_rename.py           # 确认+重命名
-│   ├── workflow_mux.py              # 字幕封装
-│   └── import_csv.py                # CSV导入到数据库
+│   ├── README.md                  # 脚本说明文档
+│   ├── output/                    # 脚本产生的日志/报告
+│   │
+│   ├── full_workflow.py           # 完整工作流（扫描→音频→视觉→封装→确认→重命名）
+│   ├── workflow_common.py         # 工作流公共模块
+│   ├── workflow_scan_audio.py     # 扫描+音频识别
+│   ├── workflow_vision.py         # 扫描+视觉识别
+│   ├── workflow_reclassify.py     # 强制重分类
+│   ├── workflow_rename.py         # 确认+重命名
+│   ├── workflow_mux.py            # 字幕封装
+│   │
+│   ├── fix_bracket_only.py        # 修CSV final_name：[标题]→标题
+│   ├── fix_bracket_filenames.py   # 修磁盘文件名+CSV：[标题].mp4→标题.mp4
+│   ├── fix_csv_paths.py           # 修CSV original_path：去掉[关键词]_前缀
+│   ├── fix_all_csvs.py            # 批量对所有CSV执行fix_bracket_only
+│   │
+│   ├── download_models.py         # 一键下载所有模型
+│   ├── download_clip.py           # 下载CLIP模型
+│   ├── download_yolo_models.py    # 下载YOLO模型
+│   ├── import_csv.py              # CSV导入到数据库
+│   └── test_prompts.py            # 测试prompt效果
 │
 ├── tests/                           # 测试文件
 ├── test/                            # 测试数据
@@ -929,7 +1096,40 @@ title-classifier db stats
 
 ## 更新日志
 
-### v7.5.0（当前版本）
+### v7.6.0（当前版本）
+
+**修复：Stage2重命名后文件查找**
+
+- 新增 `resolve_media_path()` 三级回退查找，处理Stage2重命名后CSV中original_path指向旧文件名的问题
+  - 第1级：original_path直接存在
+  - 第2级：用final_name在同目录拼路径
+  - 第3级：去掉`[关键词]_`前缀后按original_title stem搜索
+- vision/audio/renamer/muxer 四个模块统一使用回退查找
+
+**修复：Stage1b final_name格式统一**
+
+- Stage1b确认写入格式从`[优化标题]`改为`[优化标题]_原始标题`，与Vision输出一致
+- 原标题不变时不加格式（填入原标题操作保持原样）
+
+**GUI Stage1b 批量操作**
+
+- 新增批量按钮：选中行→需要视觉/不需要视觉/反选
+- 新增全选/取消全选按钮
+- AI优化进度条（实时显示百分比）
+
+**Refiner 并发加速**
+
+- Refiner改为并发批处理（ThreadPoolExecutor, 3线程并发）
+- batch_size从5提升到10，速度约提升3倍
+
+**数据修复脚本**
+
+- 新增 `scripts/fix_bracket_only.py`：修CSV中纯中括号的final_name
+- 新增 `scripts/fix_bracket_filenames.py`：修磁盘文件名+同步更新CSV
+- 新增 `scripts/fix_csv_paths.py`：修CSV的original_path去掉`[关键词]_`前缀
+- 新增 `scripts/fix_all_csvs.py`：批量对所有CSV执行修复
+
+### v7.5.0
 
 **新增：SQLite 数据库**
 

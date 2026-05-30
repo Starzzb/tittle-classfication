@@ -1,19 +1,22 @@
-"""AI标题优化模块 - 分批处理版"""
+"""AI标题优化模块 - 并发批处理版"""
 
 import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..providers import call_text_api, get_provider_config, get_api_key
 
 logger = logging.getLogger(__name__)
 
 # 每批处理的标题数量
-BATCH_SIZE = 5
+BATCH_SIZE = 10
+# 最大并发批次数
+MAX_WORKERS = 3
 
 
 class Refiner:
-    """AI标题优化器"""
+    """AI标题优化器 - 支持并发"""
 
     def __init__(self, provider: str = "gcli"):
         self.provider = provider
@@ -25,36 +28,60 @@ class Refiner:
         progress_callback: Callable[[int, int, str], None] = None,
     ) -> List[str]:
         """
-        分批优化标题
+        并发分批优化标题
 
         Args:
             titles: 标题列表
             progress_callback: 进度回调函数 (当前索引, 总数, 当前标题) -> None
 
         Returns:
-            优化后的标题列表
+            优化后的标题列表（与输入等长、等序）
         """
         if not titles:
             return []
 
-        all_results = []
         total = len(titles)
 
-        # 分批处理
+        # 构建批次: [(batch_idx, batch_titles, start_index), ...]
+        batches = []
         for batch_start in range(0, total, BATCH_SIZE):
             batch_end = min(batch_start + BATCH_SIZE, total)
-            batch_titles = titles[batch_start:batch_end]
+            batches.append((batch_start, titles[batch_start:batch_end]))
 
-            # 报告进度
-            if progress_callback:
-                for i, title in enumerate(batch_titles):
-                    progress_callback(batch_start + i, total, title)
+        all_results: Dict[int, List[str]] = {}
+        completed = 0
 
-            # 调用AI优化这一批
-            batch_results = self._refine_single_batch(batch_titles)
-            all_results.extend(batch_results)
+        def process_one(batch_start: int, batch_titles: List[str]) -> tuple:
+            result = self._refine_single_batch(batch_titles)
+            return batch_start, result
 
-        return all_results
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {
+                pool.submit(process_one, bs, bt): bs
+                for bs, bt in batches
+            }
+
+            for future in as_completed(futures):
+                bs = futures[future]
+                try:
+                    batch_start, batch_results = future.result()
+                    all_results[batch_start] = batch_results
+                    completed += len(batch_results)
+                    if progress_callback:
+                        # 报告整体进度
+                        progress_callback(completed, total, f"批次 {batch_start // BATCH_SIZE + 1}")
+                except Exception as e:
+                    logger.error(f"批次 {bs} 失败: {e}")
+                    batch_titles = [bt for b, bt in batches if b == bs][0]
+                    all_results[bs] = list(batch_titles)  # 失败时保留原标题
+                    completed += len(batch_titles)
+
+        # 按原始顺序合并结果
+        ordered = []
+        for batch_start in sorted(all_results.keys()):
+            ordered.extend(all_results[batch_start])
+
+        return ordered[:total]
 
     def _refine_single_batch(self, titles: List[str]) -> List[str]:
         """优化单批标题"""
@@ -87,12 +114,12 @@ class Refiner:
 
     def _parse_batch_response(self, response: str, count: int, original_titles: List[str] = None) -> List[str]:
         """解析批量响应
-        
+
         Args:
             response: AI返回的响应文本
             count: 期望的结果数量
             original_titles: 原始标题列表（用于空行回退）
-        
+
         Returns:
             解析后的结果列表
         """
@@ -100,24 +127,21 @@ class Refiner:
 
         lines = response.strip().split("\n")
         results = []
-        
+
         for line in lines:
             line = line.strip()
             if not line:
-                continue  # 跳过空行，不计入结果
-            # 去除行号前缀
+                continue
             cleaned = re.sub(r"^\d+[.)\s、]+", "", line).strip()
             if cleaned:
                 results.append(cleaned)
 
-        # 确保结果数量正确
         while len(results) < count:
             results.append("")
-        
-        # 如果有原始标题，用原始标题替换空结果
+
         if original_titles:
             for i in range(min(len(results), len(original_titles))):
                 if not results[i]:
                     results[i] = original_titles[i]
-        
+
         return results[:count]
